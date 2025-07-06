@@ -1,4 +1,5 @@
 import sys
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
@@ -7,6 +8,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
                                QPushButton, QVBoxLayout, QWidget)
 
 from log_utils import get_logger
+from menu_edit import MenuEditWindow
 from menu_registration import MenuRegistrationWindow
 from printer import Printer
 from utils import style
@@ -42,7 +44,8 @@ class AjustesDialog(QDialog):
 
     def get_selected_printer(self):
         idx = self.combo.currentIndex()
-        logger.info(f'Impressora selecionada: {self.printers[idx].name if idx != -1 else None}')
+        logger.info(
+            f'Impressora selecionada: {self.printers[idx].name if idx != -1 else None}')
         if idx != -1:
             return self.printers[idx]
         return None
@@ -171,7 +174,6 @@ class MainWindow(QMainWindow):
 
     def open_menu_edit(self):
         logger.info('Abrindo edição de cardápio')
-        from menu_registration import MenuEditWindow
         dialog = MenuEditWindow(self)
         dialog.show()
 
