@@ -8,10 +8,12 @@ from PySide6.QtWidgets import (QDialog, QDoubleSpinBox, QHBoxLayout,
                                QTabWidget, QVBoxLayout, QWidget)
 
 from db import (add_addition, add_category, add_menu_item, delete_addition,
-                delete_category, delete_menu_item, get_additions,
+                delete_category, delete_menu_item, get_all_additions_with_id,
                 get_categories, get_category_additions, get_menu_items,
-                set_category_additions)
+                set_category_additions, update_addition, update_category,
+                get_category_id)
 from dialogs import CategoryAdditionsDialog, MenuEditDialogItem
+from dialogs_edit_addition import EditAdditionDialog
 from log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -22,7 +24,6 @@ class MenuEditWindow(QDialog):
         super().__init__(parent)
         logger.info('MenuEditWindow inicializada')
         self.setWindowTitle("Edição de Cardápio")
-        self.setModal(True)
         self.resize(800, 500)
         # Centraliza a janela em relação ao parent, se houver
         if parent is not None:
@@ -33,7 +34,7 @@ class MenuEditWindow(QDialog):
         # --- FIX: Initialize data before setting up tabs ---
         self.menu_items = get_menu_items()
         self.categories = get_categories()
-        self.additions = get_additions()
+        self.additions = get_all_additions_with_id()
         self.category_additions = get_category_additions()
         # ---
         layout = QVBoxLayout()
@@ -108,43 +109,64 @@ class MenuEditWindow(QDialog):
         if hasattr(self, 'tab_additions') and self.tab_additions.layout() is not None:
             self.clear_layout(self.tab_additions.layout())
         layout = QVBoxLayout()
-        row_layout = QHBoxLayout()
-        self.addition_new_input = QLineEdit()
-        self.addition_new_input.setPlaceholderText("Novo adicional")
-        self.addition_price_input = QDoubleSpinBox()
-        self.addition_price_input.setPrefix("R$ ")
-        self.addition_price_input.setMaximum(9999)
-        self.addition_price_input.setDecimals(2)
-        add_button = QPushButton("Adicionar Adicional")
-        add_button.clicked.connect(self.add_addition)
-        row_layout.addWidget(self.addition_new_input)
-        row_layout.addWidget(add_button)
-        layout.addLayout(row_layout)
+        # Campo de pesquisa
+        search_layout = QHBoxLayout()
+        self.addition_search_input = QLineEdit()
+        self.addition_search_input.setPlaceholderText("Pesquisar adicional pelo nome...")
+        self.addition_search_input.textChanged.connect(self.refresh_additions_list)
+        search_layout.addWidget(QLabel("Buscar:"))
+        search_layout.addWidget(self.addition_search_input)
+        layout.addLayout(search_layout)
+        # Layout apenas para a lista de adicionais
         self.additions_btn_layout = QVBoxLayout()
-        for i, add in enumerate(self.additions):
+        layout.addLayout(self.additions_btn_layout)
+        self.tab_additions.setLayout(layout)
+        self.refresh_additions_list()
+
+    def refresh_additions_list(self):
+        # Limpa a lista de botões e labels
+        while self.additions_btn_layout.count():
+            item = self.additions_btn_layout.takeAt(0)
+            if item.layout():
+                self.clear_layout(item.layout())
+        # Filtra adicionais pelo campo de busca
+        search = self.addition_search_input.text().strip().lower() if hasattr(self, 'addition_search_input') else ''
+        filtered = [a for a in self.additions if search in a[1].lower()]
+        for i, add in enumerate(filtered):
+            item_text = f"{add[1]}   R$ {add[2]:.2f}"
             h = QHBoxLayout()
             edit_btn = QPushButton("Editar")
-            edit_btn.clicked.connect(partial(self.edit_addition, i))
+            edit_btn.clicked.connect(partial(self.edit_addition, self.additions.index(add)))
             del_btn = QPushButton("Excluir")
-            del_btn.clicked.connect(partial(self.delete_addition, i))
-            h.addWidget(QLabel(add))
+            del_btn.clicked.connect(partial(self.delete_addition, self.additions.index(add)))
+            label = QLabel(item_text)
+            h.addWidget(label)
             h.addWidget(edit_btn)
             h.addWidget(del_btn)
             self.additions_btn_layout.addLayout(h)
-        layout.addLayout(self.additions_btn_layout)
-        self.tab_additions.setLayout(layout)
 
     def edit_item(self, row):
         logger.info(f'Editando item na linha: {row}')
         item = self.menu_items[row]
-        old_name = item[0]
+        item_id = item[0]
         dialog = MenuEditDialogItem(
-            item, self.categories, self.additions, self)
+            item[1:], self.categories, self.additions, None)
+        dialog.setWindowFlags(Qt.Window)
         if dialog.exec():
             updated_item = dialog.get_item()
-            delete_menu_item(old_name)
-            add_menu_item(updated_item[0], updated_item[1], updated_item[2],
-                          updated_item[3], updated_item[4])
+            from db import update_menu_item
+            category_id = get_category_id(updated_item[2])
+            if category_id is None:
+                logger.error(f"Categoria não encontrada: {updated_item[2]}")
+                return
+            addition_ids = [add[0] for add in updated_item[4]
+                            ] if isinstance(updated_item[4], list) else []
+            try:
+                update_menu_item(item_id, updated_item[0], updated_item[1], category_id,
+                                 updated_item[3], addition_ids)
+            except ValueError as e:
+                QMessageBox.warning(self, "Erro ao editar item", str(e))
+                return
             self.menu_items = get_menu_items()
             self.refresh_table()
 
@@ -160,14 +182,24 @@ class MenuEditWindow(QDialog):
         self.table.clearContents()
         self.table.verticalHeader().setMinimumSectionSize(40)
         for row, item in enumerate(self.menu_items):
-            name, price, category, description, additions = item
+            # Solução robusta: validação do tamanho e log de erro
+            if len(item) < 6:
+                logger.error(f"Item do menu com campos insuficientes: {item}")
+                continue
+            _, name, price, category, description, additions = item[:6]
             item_nome = QTableWidgetItem(name)
             item_nome.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             self.table.setItem(row, 0, item_nome)
             item_cat = QTableWidgetItem(category)
             item_cat.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             self.table.setItem(row, 1, item_cat)
-            item_preco = QTableWidgetItem(f"R$ {price:.2f}")
+            # Conversão robusta do preço
+            try:
+                preco_float = float(price)
+                preco_str = f"R$ {preco_float:.2f}"
+            except (ValueError, TypeError):
+                preco_str = str(price)
+            item_preco = QTableWidgetItem(preco_str)
             item_preco.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             self.table.setItem(row, 2, item_preco)
             btn_edit = QPushButton("Editar")
@@ -209,36 +241,34 @@ class MenuEditWindow(QDialog):
         price = self.addition_price_input.value()
         logger.info(
             f'Tentando adicionar adicional (edit): {name} - R$ {price:.2f}')
-        if name and name not in self.additions:
-            add_addition(name)
-            self.additions.append(name)
+        if name and not any(a[1] == name for a in self.additions):
+            add_addition(name, price)
+            self.additions = get_all_additions_with_id()
             self.addition_new_input.clear()
             self.addition_price_input.setValue(0)
+            self.refresh_additions_list()  # Só atualiza a lista
 
     def edit_addition(self, idx):
-        old_name = self.additions[idx]
-        new_name, ok = QInputDialog.getText(
-            self, "Editar Adicional", "Novo nome:", text=old_name)
-        if ok and new_name and new_name != old_name:
-            self.additions[idx] = new_name
-            delete_addition(old_name)
-            add_addition(new_name)
-            layout_item = self.additions_btn_layout.itemAt(idx)
-            if layout_item:
-                label = layout_item.layout().itemAt(0).widget()
-                if label:
-                    label.setText(new_name)
-            self.update_addition_buttons()
+        addition = self.additions[idx]
+        addition_id, old_name, old_price = addition
+        dialog = EditAdditionDialog(old_name, old_price, self)
+        if dialog.exec():
+            new_name, new_price = dialog.get_data()
+            if not new_name or (new_name == old_name and new_price == old_price):
+                return
+            try:
+                update_addition(addition_id, new_name, new_price)
+                self.additions = get_all_additions_with_id()
+                self.refresh_additions_list()
+            except ValueError as e:
+                QMessageBox.warning(self, "Erro", str(e))
 
     def delete_addition(self, idx):
-        name = self.additions[idx]
-        delete_addition(name)
-        del self.additions[idx]
-        layout_item = self.additions_btn_layout.itemAt(idx)
-        if layout_item:
-            self.clear_layout(layout_item.layout())
-            self.additions_btn_layout.removeItem(layout_item)
-        self.update_addition_buttons()
+        addition = self.additions[idx]
+        addition_id, name, price = addition
+        delete_addition(addition_id)
+        self.additions = get_all_additions_with_id()
+        self.refresh_additions_list()  # Só atualiza a lista
 
     def open_category_additions(self):
         idx = self.categories_list.currentRow()
@@ -246,22 +276,38 @@ class MenuEditWindow(QDialog):
             QMessageBox.warning(self, "Erro", "Selecione uma categoria.")
             return
         cat = self.categories[idx]
+        category_id = get_category_id(cat)
+        if category_id is None:
+            QMessageBox.warning(
+                self, "Erro", "Categoria não encontrada no banco.")
+            return
         dialog = CategoryAdditionsDialog(
-            cat, self.additions, self.category_additions.get(cat, []), self)
+            cat, self.additions, self.category_additions.get(category_id, []), None)
+        dialog.setWindowFlags(Qt.Window)
         if dialog.exec():
             selected = dialog.get_selected_additions()
-            self.category_additions[cat] = selected
-            set_category_additions(cat, selected)
+            self.category_additions[category_id] = selected
+            set_category_additions(category_id, selected)
 
     def edit_category(self, idx):
         old_name = self.categories[idx]
-        new_name, ok = QInputDialog.getText(
-            self, "Editar Categoria", "Novo nome:", text=old_name)
-        if ok and new_name and new_name != old_name:
-            self.categories[idx] = new_name
-            delete_category(old_name)
-            add_category(new_name)
-            self.categories_list.item(idx).setText(new_name)
+        from dialogs import EditCategoryDialog
+        dialog = EditCategoryDialog(old_name)
+        dialog.setWindowFlags(Qt.Window)
+        if dialog.exec():
+            new_name = dialog.get_new_name()
+            if new_name and new_name != old_name:
+                # Busca o ID da categoria para atualizar sem perder vínculos
+                category_id = get_category_id(old_name)
+                if category_id is None:
+                    QMessageBox.warning(self, "Erro", "Categoria não encontrada no banco.")
+                    return
+                try:
+                    update_category(category_id, new_name)
+                    self.categories[idx] = new_name
+                    self.categories_list.item(idx).setText(new_name)
+                except ValueError as e:
+                    QMessageBox.warning(self, "Erro", str(e))
 
     def delete_category(self, idx):
         name = self.categories[idx]

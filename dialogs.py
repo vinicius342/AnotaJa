@@ -1,13 +1,16 @@
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
-                               QScrollArea, QVBoxLayout, QWidget)
+                               QMenu, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
-from db import get_additions
+from db import get_all_additions_with_id
 
 
 class CategoryAdditionsDialog(QDialog):
     def __init__(self, category, all_additions, selected_addition_ids, parent=None):
         super().__init__(parent)
+        # Configura para aparecer na barra de tarefas com controles normais
+        self.setWindowFlags(Qt.Window)
         self.setWindowTitle(f"Adicionais para {category}")
         self.setModal(True)
         self.resize(400, 350)
@@ -77,16 +80,21 @@ class CategoryAdditionsDialog(QDialog):
 class MenuEditDialogItem(QDialog):
     def __init__(self, item, categories, additions, parent=None):
         super().__init__(parent)
+        # Configura para aparecer na barra de tarefas com controles normais
+        self.setWindowFlags(Qt.Window)
         self.setWindowTitle("Editar Item do Cardápio")
         self.setModal(True)
         self.resize(400, 300)
-        # Centraliza o diálogo em relação ao parent, se houver
-        if parent is not None:
-            parent_center = parent.frameGeometry().center()
-            geo = self.frameGeometry()
-            geo.moveCenter(parent_center)
-            self.move(geo.topLeft())
-        self.name, self.price, self.category, self.description, self.item_additions = item
+        
+        # Timer para o efeito de piscar
+        self.flash_timer = QTimer()
+        self.flash_timer.timeout.connect(self.flash_window)
+        self.flash_count = 0
+        self.original_title = self.windowTitle()
+        
+        self.name, self.price, self.category, self.description, _ = item  # ignora item_additions
+        self.categories = categories
+        self.additions = additions
         layout = QVBoxLayout()
         layout.addWidget(QLabel("Nome:"))
         self.name_input = QLineEdit(self.name)
@@ -99,29 +107,116 @@ class MenuEditDialogItem(QDialog):
         self.price_input.setValue(self.price)
         layout.addWidget(self.price_input)
         layout.addWidget(QLabel("Categoria:"))
-        self.category_combo = QComboBox()
-        self.category_combo.addItems(categories)
-        if self.category in categories:
-            self.category_combo.setCurrentText(self.category)
-        layout.addWidget(self.category_combo)
+        self.category_btn = QPushButton(self.category)
+        self.category_menu = QMenu(self.category_btn)
+        for cat in self.categories:
+            action = self.category_menu.addAction(cat)
+            action.triggered.connect(lambda checked, c=cat: self.select_category(c))
+        self.category_btn.setMenu(self.category_menu)
+        layout.addWidget(self.category_btn)
         layout.addWidget(QLabel("Descrição:"))
         self.description_input = QLineEdit(self.description)
         layout.addWidget(self.description_input)
         layout.addWidget(QLabel("Adicionais:"))
-        self.additions_input = QLineEdit(self.item_additions)
-        layout.addWidget(self.additions_input)
+        # Widget e layout para exibir os adicionais
+        self.additions_widget = QWidget()
+        self.additions_layout = QVBoxLayout()
+        self.additions_widget.setLayout(self.additions_layout)
+        layout.addWidget(self.additions_widget)
+        self.setLayout(layout)
         button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
-        self.setLayout(layout)
+        # Sempre exibe os adicionais da categoria selecionada
+        self.update_additions_view(self.category_btn.text())
+
+    def changeEvent(self, event):
+        # Detecta quando a janela perde o foco
+        if event.type() == event.Type.WindowDeactivate:
+            self.start_flashing()
+        elif event.type() == event.Type.WindowActivate:
+            self.stop_flashing()
+        super().changeEvent(event)
+
+    def start_flashing(self):
+        """Inicia o efeito de piscar da janela"""
+        self.flash_count = 0
+        self.flash_timer.start(300)  # Pisca a cada 300ms
+        self.raise_()  # Traz a janela para frente
+        self.activateWindow()  # Ativa a janela
+
+    def stop_flashing(self):
+        """Para o efeito de piscar"""
+        self.flash_timer.stop()
+        self.setWindowTitle(self.original_title)
+
+    def flash_window(self):
+        """Alterna o título da janela para criar efeito de piscar"""
+        if self.flash_count >= 6:  # Pisca 3 vezes (6 mudanças)
+            self.stop_flashing()
+            return
+        
+        if self.flash_count % 2 == 0:
+            self.setWindowTitle("🔔 " + self.original_title + " 🔔")
+        else:
+            self.setWindowTitle(self.original_title)
+        
+        self.flash_count += 1
+        self.raise_()  # Mantém a janela no topo
+        self.activateWindow()
+
+    def update_additions_view(self, selected_category):
+        from db import get_category_additions, get_category_id
+        while self.additions_layout.count():
+            child = self.additions_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        # Converte nome da categoria para ID
+        category_id = get_category_id(selected_category)
+        if category_id is None:
+            self.additions_layout.addWidget(QLabel("Categoria não encontrada."))
+            return
+        category_addition_ids = get_category_additions().get(category_id, [])
+        filtered_additions = [a for a in self.additions if a[0] in category_addition_ids]
+        if filtered_additions:
+            for add in filtered_additions:
+                label = QLabel(f"• {add[1]} (R$ {add[2]:.2f})")
+                self.additions_layout.addWidget(label)
+        else:
+            self.additions_layout.addWidget(QLabel("Nenhum adicional para esta categoria."))
 
     def get_item(self):
         return (
             self.name_input.text().strip(),
             self.price_input.value(),
-            self.category_combo.currentText(),
+            self.category,  # agora pega do botão
             self.description_input.text().strip(),
-            self.additions_input.text().strip()
+            []  # itens não têm adicionais próprios
         )
+    
+    def select_category(self, category):
+        self.category = category
+        self.category_btn.setText(category)
+        self.update_additions_view(category)
+
+
+class EditCategoryDialog(QDialog):
+    def __init__(self, old_name, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Window)
+        self.setWindowTitle("Editar Categoria")
+        self.resize(350, 120)
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel("Novo nome da categoria:"))
+        self.input = QLineEdit(old_name)
+        layout.addWidget(self.input)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.setLayout(layout)
+
+    def get_new_name(self):
+        return self.input.text().strip()

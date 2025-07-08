@@ -163,19 +163,15 @@ class MainWindow(QMainWindow):
 
     def open_menu_registration(self):
         logger.info('Abrindo cadastro de cardápio')
-        # Mantém referência à janela para evitar destruição prematura
-        # Remove parent para janela independente
         self.menu_registration_window = MenuRegistrationWindow()
-        self.menu_registration_window.setWindowFlags(
-            Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)  # Força aparecer na área de trabalho
+        self.menu_registration_window.setWindowFlags(Qt.Window)
         self.menu_registration_window.show()
-        self.menu_registration_window.raise_()  # Traz para frente
-        self.menu_registration_window.activateWindow()  # Ativa a janela
 
     def open_menu_edit(self):
         logger.info('Abrindo edição de cardápio')
-        dialog = MenuEditWindow(self)
-        dialog.show()
+        self.menu_edit_window = MenuEditWindow()
+        self.menu_edit_window.setWindowFlags(Qt.Window)
+        self.menu_edit_window.show()
 
 
 if __name__ == "__main__":

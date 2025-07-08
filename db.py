@@ -78,8 +78,32 @@ def get_categories():
 def delete_category(name):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('DELETE FROM categories WHERE name = ?', (name,))
+        # Busca o id da categoria
+        cursor.execute('SELECT id FROM categories WHERE name = ?', (name,))
+        row = cursor.fetchone()
+        if not row:
+            return
+        category_id = row[0]
+        # Busca todos os itens do cardápio vinculados a essa categoria
+        cursor.execute('SELECT id FROM menu_items WHERE category_id = ?', (category_id,))
+        item_ids = [r[0] for r in cursor.fetchall()]
+        # Exclui todos os itens vinculados
+        for item_id in item_ids:
+            cursor.execute('DELETE FROM item_addition_link WHERE item_id = ?', (item_id,))
+            cursor.execute('DELETE FROM menu_items WHERE id = ?', (item_id,))
+        # Exclui a categoria
+        cursor.execute('DELETE FROM categories WHERE id = ?', (category_id,))
         conn.commit()
+
+def update_category(category_id, name):
+    """Atualiza o nome de uma categoria mantendo o id e todos os vínculos."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute('UPDATE categories SET name = ? WHERE id = ?', (name, category_id))
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Erro ao atualizar categoria: nome já existe.') from e
 
 # CRUD para adicionais
 
@@ -94,35 +118,28 @@ def add_addition(name, price=0.0):
             raise ValueError('Adicional já existe.') from e
 
 
-def get_additions():
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT name, price FROM additions')
-        return [(row[0], row[1]) for row in cursor.fetchall()]
-
-
-def delete_addition(name):
+def delete_addition(addition_id):
     with get_connection() as conn:
         cursor = conn.cursor()
         # Remove da tabela de adicionais
-        cursor.execute('DELETE FROM additions WHERE name = ?', (name,))
+        cursor.execute('DELETE FROM additions WHERE id = ?', (addition_id,))
         # Remove dos vínculos de categoria
         cursor.execute(
-            'DELETE FROM category_addition_link WHERE addition_id = ?', (name,))
-        # Remove dos itens do cardápio
-        cursor.execute('SELECT id, additions FROM menu_items')
-        rows = cursor.fetchall()
-        for item_id, additions in rows:
-            if additions:
-                try:
-                    adds_list = json.loads(additions)
-                except Exception:
-                    adds_list = []
-                if name in adds_list:
-                    adds_list = [a for a in adds_list if a != name]
-                    cursor.execute('UPDATE menu_items SET additions = ? WHERE id = ?', (json.dumps(
-                        adds_list), item_id))
+            'DELETE FROM category_addition_link WHERE addition_id = ?', (addition_id,))
+        # Remove dos vínculos de itens do cardápio
+        cursor.execute('DELETE FROM item_addition_link WHERE addition_id = ?', (addition_id,))
         conn.commit()
+
+
+def update_addition(addition_id, name, price):
+    """Atualiza o nome e o preço de um adicional mantendo o id."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute('UPDATE additions SET name = ?, price = ? WHERE id = ?', (name, price, addition_id))
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Erro ao atualizar adicional: nome já existe.') from e
 
 # CRUD para itens do cardápio
 
@@ -178,19 +195,23 @@ def delete_menu_item(item_id):
         conn.commit()
 
 
-def update_menu_item(item_id, name, price, category_id, description, addition_ids):
+def update_menu_item(item_id, name, price, category_id, description, addition_ids=None):
+    import sqlite3
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE menu_items SET name = ?, price = ?, category_id = ?, description = ? WHERE id = ?
-        ''', (name, price, category_id, description, item_id))
-        # Remove vínculos antigos de adicionais
-        cursor.execute(
-            'DELETE FROM item_addition_link WHERE item_id = ?', (item_id,))
-        # Adiciona novos vínculos
-        for add_id in addition_ids:
+        try:
             cursor.execute(
-                'INSERT INTO item_addition_link (item_id, addition_id) VALUES (?, ?)', (item_id, add_id))
+                'UPDATE menu_items SET name=?, price=?, category_id=?, description=? WHERE id=?',
+                (name, price, category_id, description, item_id)
+            )
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Já existe um item com esse nome.') from e
+        # Remove vínculos antigos
+        cursor.execute('DELETE FROM item_addition_link WHERE item_id=?', (item_id,))
+        # Adiciona vínculos novos
+        if addition_ids:
+            for add_id in addition_ids:
+                cursor.execute('INSERT INTO item_addition_link (item_id, addition_id) VALUES (?, ?)', (item_id, add_id))
         conn.commit()
 
 # CRUD para vínculos categoria-adicionais

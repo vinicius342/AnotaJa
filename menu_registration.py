@@ -1,12 +1,12 @@
 import json
 from functools import partial
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtWidgets import (QDialog,
                                QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QMenu, QMessageBox, QPushButton,
                                QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
-from db import (add_addition, add_category, add_menu_item, get_additions,
+from db import (add_addition, add_category, add_menu_item, get_all_additions_with_id,
                 get_categories, get_category_additions, get_menu_items,
                 init_db, set_category_additions)
 from dialogs import CategoryAdditionsDialog
@@ -29,7 +29,6 @@ class MenuRegistrationWindow(QDialog):
         super().__init__(parent)
         logger.info('MenuRegistrationWindow inicializada')
         self.setWindowTitle("Cadastro de Cardápio")
-        self.setModal(True)
         self.resize(800, 500)
         # Centraliza a janela em relação ao parent, se houver
         if parent is not None:
@@ -42,7 +41,7 @@ class MenuRegistrationWindow(QDialog):
             logger.info('Banco de dados inicializado')
             self.categories = get_categories()
             logger.info(f'Categorias carregadas: {self.categories}')
-            self.additions = get_additions()
+            self.additions = get_all_additions_with_id()
             logger.info(f'Adicionais carregados: {self.additions}')
             self.menu_items = get_menu_items()
             logger.info(f'Itens do cardápio carregados: {self.menu_items}')
@@ -61,7 +60,7 @@ class MenuRegistrationWindow(QDialog):
                 default_additions = []
                 for add in default_additions:
                     add_addition(add)
-                self.additions = get_additions()
+                self.additions = get_all_additions_with_id()
 
             # Vincula alguns adicionais às categorias padrão para demonstração
             if not self.category_additions:
@@ -271,7 +270,8 @@ class MenuRegistrationWindow(QDialog):
         layout.addLayout(form_layout)
         self.additions_list = QListWidget()
         # Exibe nome e valor do adicional
-        for add, price in get_additions():
+        for add_tuple in get_all_additions_with_id():
+            _, add, price = add_tuple
             item_text = f"{add}   R$ {price:.2f}"
             self.additions_list.addItem(item_text)
         layout.addWidget(self.additions_list)
@@ -283,14 +283,14 @@ class MenuRegistrationWindow(QDialog):
         if not name:
             QMessageBox.warning(self, "Erro", "Digite o nome do adicional.")
             return
-        if name in [a for a, _ in get_additions()]:
+        if name in [a[1] for a in get_all_additions_with_id()]:
             QMessageBox.warning(self, "Erro", "Adicional já existe.")
             return
         add_addition(name, price)
-        # Atualiza a lista de adicionais (nome, preço)
-        self.additions = get_additions()
+        # Atualiza a lista de adicionais (id, nome, preço)
+        self.additions = get_all_additions_with_id()
         self.additions_list.clear()
-        for add, price in self.additions:
+        for _, add, price in self.additions:
             item_text = f"{add}   R$ {price:.2f}"
             self.additions_list.addItem(item_text)
         self.addition_new_input.clear()
@@ -366,57 +366,4 @@ class MenuRegistrationWindow(QDialog):
     # def delete_selected_item(self): ...
     # def edit_selected_item(self): ...
 
-# Diálogo de edição de item
-
-
-class EditItemDialog(QDialog):
-    def __init__(self, name, price, category, description, all_additions, selected_add_ids, categories, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Editar Item")
-        self.setModal(True)
-        self.resize(400, 350)
-        layout = QVBoxLayout()
-        layout.addWidget(QLabel("Nome:"))
-        self.name_input = QLineEdit(name)
-        layout.addWidget(self.name_input)
-        layout.addWidget(QLabel("Preço:"))
-        self.price_input = QDoubleSpinBox()
-        self.price_input.setPrefix("R$ ")
-        self.price_input.setMaximum(9999)
-        self.price_input.setDecimals(2)
-        self.price_input.setValue(price)
-        layout.addWidget(self.price_input)
-        layout.addWidget(QLabel("Categoria:"))
-        self.category_combo = QComboBox()
-        self.category_combo.addItems(categories)
-        if category in categories:
-            self.category_combo.setCurrentText(category)
-        layout.addWidget(self.category_combo)
-        layout.addWidget(QLabel("Descrição:"))
-        self.description_input = QLineEdit(description)
-        layout.addWidget(self.description_input)
-        layout.addWidget(QLabel("Adicionais:"))
-        self.addition_checks = []
-        for add_id, add_name, add_price in all_additions:
-            cb = QCheckBox(f"{add_name}   R$ {add_price:.2f}")
-            if add_id in selected_add_ids:
-                cb.setChecked(True)
-            self.addition_checks.append((cb, add_id))
-            layout.addWidget(cb)
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-        self.setLayout(layout)
-
-    def get_item(self):
-        selected_add_ids = [add_id for cb,
-                            add_id in self.addition_checks if cb.isChecked()]
-        return (
-            self.name_input.text().strip(),
-            self.price_input.value(),
-            self.category_combo.currentText(),
-            self.description_input.text().strip(),
-            selected_add_ids
-        )
+# Fim do arquivo
