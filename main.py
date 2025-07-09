@@ -7,13 +7,15 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
                                QMainWindow, QMenu, QMenuBar, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
 
+from customer_management import CustomerManagementWindow
+from neighborhood_management import NeighborhoodManagementWindow
 from log_utils import get_logger
 from menu_edit import MenuEditWindow
 from menu_registration import MenuRegistrationWindow
 from printer import Printer
 from utils import style
 
-logger = get_logger(__name__)
+LOGGER = get_logger(__name__)
 
 DEFAULT_PRINTER = None
 
@@ -21,7 +23,7 @@ DEFAULT_PRINTER = None
 class AjustesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        logger.info('AjustesDialog inicializado')
+        LOGGER.info('AjustesDialog inicializado')
         self.setWindowTitle("Ajustes de Impressora")
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -44,7 +46,7 @@ class AjustesDialog(QDialog):
 
     def get_selected_printer(self):
         idx = self.combo.currentIndex()
-        logger.info(
+        LOGGER.info(
             f'Impressora selecionada: {self.printers[idx].name if idx != -1 else None}')
         if idx != -1:
             return self.printers[idx]
@@ -60,10 +62,10 @@ class PrintThread(QThread):
         self.text = text
 
     def run(self):
-        logger.info(f'Iniciando impressão em {self.printer.name}')
+        LOGGER.info(f'Iniciando impressão em {self.printer.name}')
         # Executa a impressão (pode ser bloqueante)
         self.printer.print(self.text)
-        logger.info(f'Impressão finalizada em {self.printer.name}')
+        LOGGER.info(f'Impressão finalizada em {self.printer.name}')
         self.finished_signal.emit(self.printer.name)
 
 
@@ -108,7 +110,7 @@ class PrintScreen(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        logger.info('MainWindow inicializada')
+        LOGGER.info('MainWindow inicializada')
         self.setWindowTitle("AnotaJá")
 
         # Menu bar com botão Ajustes
@@ -119,11 +121,25 @@ class MainWindow(QMainWindow):
         cadastro_action.triggered.connect(self.open_menu_registration)
         edicao_action = QAction("Edição", self)
         edicao_action.triggered.connect(self.open_menu_edit)
-        ajustes_action = QAction("Ajustes", self)
-        ajustes_action.triggered.connect(self.open_settings)
         menu_menu.addAction(cadastro_action)
         menu_menu.addAction(edicao_action)
         menubar.addMenu(menu_menu)
+
+        # Menu de Clientes
+        cliente_menu = QMenu("Cliente", self)
+        gerenciar_cliente_action = QAction("Gerenciar Clientes", self)
+        gerenciar_cliente_action.triggered.connect(
+            self.open_customer_management)
+        cliente_menu.addAction(gerenciar_cliente_action)
+        
+        bairros_action = QAction("Gerenciar Bairros", self)
+        bairros_action.triggered.connect(self.open_neighborhood_management)
+        cliente_menu.addAction(bairros_action)
+        menubar.addMenu(cliente_menu)
+
+        # Menu de Ajustes
+        ajustes_action = QAction("Ajustes", self)
+        ajustes_action.triggered.connect(self.open_settings)
         menubar.addAction(ajustes_action)
 
         central_widget = QWidget()
@@ -145,7 +161,7 @@ class MainWindow(QMainWindow):
 
     def open_settings(self):
         global DEFAULT_PRINTER
-        logger.info('Abrindo ajustes de impressora')
+        LOGGER.info('Abrindo ajustes de impressora')
         dialog = AjustesDialog(self)
         # Seleciona a impressora padrão atual, se houver
         if DEFAULT_PRINTER is not None:
@@ -162,24 +178,34 @@ class MainWindow(QMainWindow):
                 )
 
     def open_menu_registration(self):
-        logger.info('Abrindo cadastro de cardápio')
+        LOGGER.info('Abrindo cadastro de cardápio')
         self.menu_registration_window = MenuRegistrationWindow()
         self.menu_registration_window.setWindowFlags(Qt.Window)
         self.menu_registration_window.show()
 
     def open_menu_edit(self):
-        logger.info('Abrindo edição de cardápio')
+        LOGGER.info('Abrindo edição de cardápio')
         self.menu_edit_window = MenuEditWindow()
         self.menu_edit_window.setWindowFlags(Qt.Window)
         self.menu_edit_window.show()
 
+    def open_customer_management(self):
+        LOGGER.info('Abrindo gerenciamento de clientes')
+        self.customer_management_window = CustomerManagementWindow(self)
+        self.customer_management_window.show()
+
+    def open_neighborhood_management(self):
+        LOGGER.info('Abrindo gerenciamento de bairros')
+        self.neighborhood_management_window = NeighborhoodManagementWindow(self)
+        self.neighborhood_management_window.show()
+
 
 if __name__ == "__main__":
-    logger.info('Aplicação iniciada')
+    LOGGER.info('Aplicação iniciada')
     app = QApplication(sys.argv)
 
     app.setStyleSheet(style)
     window = MainWindow()
     window.showMaximized()
-    logger.info('Janela principal exibida')
+    LOGGER.info('Janela principal exibida')
     sys.exit(app.exec())

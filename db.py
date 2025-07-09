@@ -53,6 +53,64 @@ def init_db():
                 FOREIGN KEY (addition_id) REFERENCES additions(id)
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS neighborhoods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                delivery_fee REAL NOT NULL DEFAULT 0.0
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS customers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                phone TEXT UNIQUE NOT NULL,
+                street TEXT,
+                number TEXT,
+                neighborhood_id INTEGER,
+                reference TEXT,
+                FOREIGN KEY (neighborhood_id) REFERENCES neighborhoods(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id INTEGER,
+                order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_amount REAL NOT NULL DEFAULT 0.0,
+                status TEXT DEFAULT 'Pendente',
+                notes TEXT,
+                FOREIGN KEY (customer_id) REFERENCES customers(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                menu_item_id INTEGER NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                unit_price REAL NOT NULL,
+                FOREIGN KEY (order_id) REFERENCES orders(id),
+                FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_item_additions (
+                order_item_id INTEGER NOT NULL,
+                addition_id INTEGER NOT NULL,
+                PRIMARY KEY (order_item_id, addition_id),
+                FOREIGN KEY (order_item_id) REFERENCES order_items(id),
+                FOREIGN KEY (addition_id) REFERENCES additions(id)
+            )
+        ''')
+        # Migração: adicionar coluna neighborhood_id se não existir
+        cursor.execute("PRAGMA table_info(customers)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'neighborhood_id' not in columns:
+            cursor.execute('''
+                ALTER TABLE customers ADD COLUMN neighborhood_id INTEGER 
+                REFERENCES neighborhoods(id)
+            ''')
         conn.commit()
 
 # CRUD para categorias
@@ -271,4 +329,216 @@ def set_category_addition_ids(category_id, addition_ids):
         for add_id in addition_ids:
             cursor.execute(
                 'INSERT INTO category_addition_link (category_id, addition_id) VALUES (?, ?)', (category_id, add_id))
+        conn.commit()
+
+
+# CRUD para clientes
+
+def add_customer(name, phone, street=None, number=None, neighborhood_id=None, reference=None):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'INSERT INTO customers (name, phone, street, number, neighborhood_id, reference) VALUES (?, ?, ?, ?, ?, ?)',
+                (name, phone, street, number, neighborhood_id, reference)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Telefone já cadastrado para outro cliente.') from e
+
+
+def get_customers():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT c.id, c.name, c.phone, c.street, c.number, c.neighborhood_id, c.reference, n.name as neighborhood_name
+            FROM customers c
+            LEFT JOIN neighborhoods n ON c.neighborhood_id = n.id
+            ORDER BY c.name
+        ''')
+        return cursor.fetchall()
+
+
+def update_customer(customer_id, name, phone, street=None, number=None, neighborhood_id=None, reference=None):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'UPDATE customers SET name=?, phone=?, street=?, number=?, neighborhood_id=?, reference=? WHERE id=?',
+                (name, phone, street, number, neighborhood_id, reference, customer_id)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Telefone já cadastrado para outro cliente.') from e
+
+
+def delete_customer(customer_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM customers WHERE id = ?', (customer_id,))
+        conn.commit()
+
+
+def get_customer_by_phone(phone):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, phone, street, number, reference FROM customers WHERE phone = ?', (phone,))
+        return cursor.fetchone()
+
+
+# CRUD para pedidos
+
+def add_order(customer_id=None, total_amount=0.0, notes=''):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO orders (customer_id, total_amount, notes) VALUES (?, ?, ?)',
+            (customer_id, total_amount, notes)
+        )
+        order_id = cursor.lastrowid
+        conn.commit()
+        return order_id
+
+
+def get_orders():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT o.id, o.customer_id, c.name, c.phone, o.order_date, 
+                   o.total_amount, o.status, o.notes
+            FROM orders o
+            LEFT JOIN customers c ON o.customer_id = c.id
+            ORDER BY o.order_date DESC
+        ''')
+        return cursor.fetchall()
+
+
+def get_customer_orders(customer_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT o.id, o.order_date, o.total_amount, o.status, o.notes
+            FROM orders o
+            WHERE o.customer_id = ?
+            ORDER BY o.order_date DESC
+        ''', (customer_id,))
+        return cursor.fetchall()
+
+
+def add_order_item(order_id, menu_item_id, quantity, unit_price):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO order_items (order_id, menu_item_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
+            (order_id, menu_item_id, quantity, unit_price)
+        )
+        order_item_id = cursor.lastrowid
+        conn.commit()
+        return order_item_id
+
+
+def get_order_items(order_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT oi.id, oi.menu_item_id, m.name, oi.quantity, oi.unit_price,
+                   (oi.quantity * oi.unit_price) as total
+            FROM order_items oi
+            JOIN menu_items m ON oi.menu_item_id = m.id
+            WHERE oi.order_id = ?
+        ''', (order_id,))
+        return cursor.fetchall()
+
+
+def update_order_total(order_id):
+    """Atualiza o total do pedido baseado nos itens"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE orders 
+            SET total_amount = (
+                SELECT COALESCE(SUM(quantity * unit_price), 0)
+                FROM order_items 
+                WHERE order_id = ?
+            )
+            WHERE id = ?
+        ''', (order_id, order_id))
+        conn.commit()
+
+
+def search_customers(search_term):
+    """Busca clientes por nome, telefone ou endereço (rua, número, referência)
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        search_pattern = f'%{search_term}%'
+        cursor.execute('''
+            SELECT c.id, c.name, c.phone, c.street, c.number, c.neighborhood_id, c.reference, n.name as neighborhood_name
+            FROM customers c
+            LEFT JOIN neighborhoods n ON c.neighborhood_id = n.id
+            WHERE c.name LIKE ? OR c.phone LIKE ? OR c.street LIKE ? 
+            OR c.number LIKE ? OR c.reference LIKE ? 
+            ORDER BY c.name
+        ''', (
+            search_pattern, search_pattern, search_pattern,
+            search_pattern, search_pattern
+        ))
+        return cursor.fetchall()
+
+
+# Funções para gerenciar bairros
+
+
+def add_neighborhood(name, delivery_fee):
+    """Adiciona um novo bairro"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'INSERT INTO neighborhoods (name, delivery_fee) VALUES (?, ?)',
+                (name, delivery_fee)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Erro: Bairro já existe.') from e
+
+
+def get_neighborhoods():
+    """Retorna todos os bairros"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT id, name, delivery_fee FROM neighborhoods ORDER BY name'
+        )
+        return cursor.fetchall()
+
+
+def update_neighborhood(neighborhood_id, name, delivery_fee):
+    """Atualiza um bairro"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'UPDATE neighborhoods SET name = ?, delivery_fee = ? WHERE id = ?',
+                (name, delivery_fee, neighborhood_id)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError as e:
+            raise ValueError('Erro: Nome do bairro já existe.') from e
+
+
+def delete_neighborhood(neighborhood_id):
+    """Exclui um bairro"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Verifica se há clientes usando este bairro
+        cursor.execute(
+            'SELECT COUNT(*) FROM customers WHERE neighborhood_id = ?',
+            (neighborhood_id,)
+        )
+        if cursor.fetchone()[0] > 0:
+            raise ValueError(
+                'Não é possível excluir bairro: existem clientes cadastrados neste bairro.'
+            )
+        cursor.execute('DELETE FROM neighborhoods WHERE id = ?', (neighborhood_id,))
         conn.commit()
