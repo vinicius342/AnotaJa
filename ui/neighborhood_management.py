@@ -4,9 +4,9 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QTableWidgetItem, QHeaderView, QMessageBox,
                                QSizePolicy, QWidget, QDoubleSpinBox)
 
-from db import (add_neighborhood, get_neighborhoods, update_neighborhood, 
+from database.db import (add_neighborhood, get_neighborhoods, update_neighborhood, 
                 delete_neighborhood, init_db)
-from log_utils import get_logger
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 

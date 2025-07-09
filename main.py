@@ -7,13 +7,14 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
                                QMainWindow, QMenu, QMenuBar, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
 
-from customer_management import CustomerManagementWindow
-from neighborhood_management import NeighborhoodManagementWindow
-from log_utils import get_logger
-from menu_edit import MenuEditWindow
-from menu_registration import MenuRegistrationWindow
-from printer import Printer
-from utils import style
+from ui.customer_management import CustomerManagementWindow
+from ui.neighborhood_management import NeighborhoodManagementWindow
+from utils.log_utils import get_logger
+from ui.menu_edit import MenuEditWindow
+from ui.menu_registration import MenuRegistrationWindow
+from utils.printer import Printer
+from utils.utils import style
+from database.db import init_db
 
 LOGGER = get_logger(__name__)
 
@@ -202,6 +203,11 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     LOGGER.info('Aplicação iniciada')
+    
+    # Inicializa o banco de dados
+    init_db()
+    LOGGER.info('Banco de dados inicializado')
+    
     app = QApplication(sys.argv)
 
     app.setStyleSheet(style)

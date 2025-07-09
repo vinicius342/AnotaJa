@@ -1,0 +1,9 @@
+# AnotaJá - Sistema de Cardápio e Pedidos
+# Dependências do projeto
+
+PySide6>=6.5.0
+# Interface gráfica moderna baseada em Qt6
+
+# Dependências opcionais para funcionalidades específicas:
+# requests>=2.31.0  # Para sincronização com Firebase (se ativado)
+# firebase-admin>=6.0.0  # Para integração Firebase (se ativado)

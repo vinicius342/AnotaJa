@@ -6,11 +6,11 @@ from PySide6.QtWidgets import (QDialog,
                                QListWidget, QMenu, QMessageBox, QPushButton,
                                QScrollArea, QTabWidget, QVBoxLayout, QWidget)
 
-from db import (add_addition, add_category, add_menu_item, get_all_additions_with_id,
+from database.db import (add_addition, add_category, add_menu_item, get_all_additions_with_id,
                 get_categories, get_category_additions, get_menu_items,
                 init_db, set_category_additions)
-from dialogs import CategoryAdditionsDialog
-from log_utils import get_logger
+from ui.dialogs import CategoryAdditionsDialog
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 

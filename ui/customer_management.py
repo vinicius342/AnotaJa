@@ -4,9 +4,9 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QTableWidgetItem, QHeaderView, QMessageBox,
                                QSizePolicy, QWidget, QMenu)
 
-from db import (add_customer, get_customers, update_customer, delete_customer,
+from database.db import (add_customer, get_customers, update_customer, delete_customer,
                 init_db, search_customers, get_customer_orders, get_neighborhoods)
-from log_utils import get_logger
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 
