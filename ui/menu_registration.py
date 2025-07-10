@@ -152,12 +152,12 @@ class MenuRegistrationWindow(QDialog):
             QMessageBox.warning(self, "Erro", "Preencha nome e categoria.")
             return
         # Verifica se já existe item com esse nome
-        from db import get_menu_items
+        from database.db import get_menu_items
         if any(item[1] == name for item in get_menu_items()):
             QMessageBox.warning(self, "Erro", "Já existe um item com esse nome.")
             return
         # Buscar o ID da categoria
-        from db import (add_menu_item, get_category_addition_ids, get_category_id)
+        from database.db import (add_menu_item, get_category_addition_ids, get_category_id)
         category_id = get_category_id(category_name)
         # Buscar os IDs dos adicionais vinculados à categoria
         addition_ids = get_category_addition_ids(category_id)
@@ -237,12 +237,12 @@ class MenuRegistrationWindow(QDialog):
                 return
             cat = self.categories[idx]
         # Buscar o ID da categoria
-        from db import (get_all_additions_with_id, get_category_id,
+        from database.db import (get_all_additions_with_id, get_category_id,
                         set_category_addition_ids)
         cat_id = get_category_id(cat)
         all_additions = get_all_additions_with_id()  # [(id, nome, preco), ...]
         # Buscar IDs já vinculados (se houver)
-        from db import get_category_addition_ids
+        from database.db import get_category_addition_ids
         selected = get_category_addition_ids(cat_id)
         dialog = CategoryAdditionsDialog(
             cat, all_additions, selected, self)
@@ -303,7 +303,7 @@ class MenuRegistrationWindow(QDialog):
             return
         cat_name = self.categories[idx]
         # Buscar o ID da categoria
-        from db import (get_all_additions_with_id, get_category_addition_ids,
+        from database.db import (get_all_additions_with_id, get_category_addition_ids,
                         get_category_id, set_category_addition_ids)
         cat_id = get_category_id(cat_name)
         all_additions = get_all_additions_with_id()  # [(id, nome, preco), ...]
@@ -335,11 +335,11 @@ class MenuRegistrationWindow(QDialog):
             if widget:
                 widget.setParent(None)
         # Buscar o ID da categoria selecionada
-        from db import (get_all_additions_with_id, get_category_addition_ids,
+        from database.db import (get_all_additions_with_id, get_category_addition_ids,
                         get_category_id)
         cat_id = None
         if self.selected_category:
-            from db import get_category_id
+            from database.db import get_category_id
             cat_id = get_category_id(self.selected_category)
         if not cat_id:
             label = QLabel("Nenhum adicional vinculado a esta categoria.")

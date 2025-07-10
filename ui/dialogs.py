@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
                                QMenu, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 
-from db import get_all_additions_with_id
+from database.db import get_all_additions_with_id
 
 
 class CategoryAdditionsDialog(QDialog):
@@ -168,7 +168,7 @@ class MenuEditDialogItem(QDialog):
         self.activateWindow()
 
     def update_additions_view(self, selected_category):
-        from db import get_category_additions, get_category_id
+        from database.db import get_category_additions, get_category_id
         while self.additions_layout.count():
             child = self.additions_layout.takeAt(0)
             if child.widget():

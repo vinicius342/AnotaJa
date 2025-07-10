@@ -7,14 +7,15 @@ from PySide6.QtWidgets import (QDialog, QDoubleSpinBox, QHBoxLayout,
                                QSizePolicy, QTableWidget, QTableWidgetItem,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from db import (add_addition, add_category, add_menu_item, delete_addition,
-                delete_category, delete_menu_item, get_all_additions_with_id,
-                get_categories, get_category_additions, get_menu_items,
-                set_category_additions, update_addition, update_category,
-                get_category_id)
-from dialogs import CategoryAdditionsDialog, MenuEditDialogItem
-from dialogs_edit_addition import EditAdditionDialog
-from log_utils import get_logger
+from database.db import (add_addition, add_category, add_menu_item,
+                         delete_addition, delete_category, delete_menu_item,
+                         get_all_additions_with_id, get_categories,
+                         get_category_additions, get_menu_items,
+                         set_category_additions, update_addition,
+                         update_category, get_category_id)
+from .dialogs import CategoryAdditionsDialog, MenuEditDialogItem
+from .dialogs_edit_addition import EditAdditionDialog
+from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -154,7 +155,7 @@ class MenuEditWindow(QDialog):
         dialog.setWindowFlags(Qt.Window)
         if dialog.exec():
             updated_item = dialog.get_item()
-            from db import update_menu_item
+            from database.db import update_menu_item
             category_id = get_category_id(updated_item[2])
             if category_id is None:
                 logger.error(f"Categoria não encontrada: {updated_item[2]}")

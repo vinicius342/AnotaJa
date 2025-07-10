@@ -1,4 +1,8 @@
 import sys
+import os
+
+# Adiciona o diretório do projeto ao PYTHONPATH
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction
