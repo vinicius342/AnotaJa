@@ -142,25 +142,30 @@ def delete_category(name):
             return
         category_id = row[0]
         # Busca todos os itens do cardápio vinculados a essa categoria
-        cursor.execute('SELECT id FROM menu_items WHERE category_id = ?', (category_id,))
+        cursor.execute(
+            'SELECT id FROM menu_items WHERE category_id = ?', (category_id,))
         item_ids = [r[0] for r in cursor.fetchall()]
         # Exclui todos os itens vinculados
         for item_id in item_ids:
-            cursor.execute('DELETE FROM item_addition_link WHERE item_id = ?', (item_id,))
+            cursor.execute(
+                'DELETE FROM item_addition_link WHERE item_id = ?', (item_id,))
             cursor.execute('DELETE FROM menu_items WHERE id = ?', (item_id,))
         # Exclui a categoria
         cursor.execute('DELETE FROM categories WHERE id = ?', (category_id,))
         conn.commit()
+
 
 def update_category(category_id, name):
     """Atualiza o nome de uma categoria mantendo o id e todos os vínculos."""
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute('UPDATE categories SET name = ? WHERE id = ?', (name, category_id))
+            cursor.execute(
+                'UPDATE categories SET name = ? WHERE id = ?', (name, category_id))
             conn.commit()
         except sqlite3.IntegrityError as e:
-            raise ValueError('Erro ao atualizar categoria: nome já existe.') from e
+            raise ValueError(
+                'Erro ao atualizar categoria: nome já existe.') from e
 
 # CRUD para adicionais
 
@@ -169,7 +174,8 @@ def add_addition(name, price=0.0):
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute('INSERT INTO additions (name, price) VALUES (?, ?)', (name, price))
+            cursor.execute(
+                'INSERT INTO additions (name, price) VALUES (?, ?)', (name, price))
             conn.commit()
         except sqlite3.IntegrityError as e:
             raise ValueError('Adicional já existe.') from e
@@ -184,7 +190,8 @@ def delete_addition(addition_id):
         cursor.execute(
             'DELETE FROM category_addition_link WHERE addition_id = ?', (addition_id,))
         # Remove dos vínculos de itens do cardápio
-        cursor.execute('DELETE FROM item_addition_link WHERE addition_id = ?', (addition_id,))
+        cursor.execute(
+            'DELETE FROM item_addition_link WHERE addition_id = ?', (addition_id,))
         conn.commit()
 
 
@@ -193,10 +200,12 @@ def update_addition(addition_id, name, price):
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute('UPDATE additions SET name = ?, price = ? WHERE id = ?', (name, price, addition_id))
+            cursor.execute(
+                'UPDATE additions SET name = ?, price = ? WHERE id = ?', (name, price, addition_id))
             conn.commit()
         except sqlite3.IntegrityError as e:
-            raise ValueError('Erro ao atualizar adicional: nome já existe.') from e
+            raise ValueError(
+                'Erro ao atualizar adicional: nome já existe.') from e
 
 # CRUD para itens do cardápio
 
@@ -264,11 +273,13 @@ def update_menu_item(item_id, name, price, category_id, description, addition_id
         except sqlite3.IntegrityError as e:
             raise ValueError('Já existe um item com esse nome.') from e
         # Remove vínculos antigos
-        cursor.execute('DELETE FROM item_addition_link WHERE item_id=?', (item_id,))
+        cursor.execute(
+            'DELETE FROM item_addition_link WHERE item_id=?', (item_id,))
         # Adiciona vínculos novos
         if addition_ids:
             for add_id in addition_ids:
-                cursor.execute('INSERT INTO item_addition_link (item_id, addition_id) VALUES (?, ?)', (item_id, add_id))
+                cursor.execute(
+                    'INSERT INTO item_addition_link (item_id, addition_id) VALUES (?, ?)', (item_id, add_id))
         conn.commit()
 
 # CRUD para vínculos categoria-adicionais
@@ -343,7 +354,8 @@ def add_customer(name, phone, street=None, number=None, neighborhood_id=None, re
             )
             conn.commit()
         except sqlite3.IntegrityError as e:
-            raise ValueError('Telefone já cadastrado para outro cliente.') from e
+            raise ValueError(
+                'Telefone já cadastrado para outro cliente.') from e
 
 
 def get_customers():
@@ -368,7 +380,8 @@ def update_customer(customer_id, name, phone, street=None, number=None, neighbor
             )
             conn.commit()
         except sqlite3.IntegrityError as e:
-            raise ValueError('Telefone já cadastrado para outro cliente.') from e
+            raise ValueError(
+                'Telefone já cadastrado para outro cliente.') from e
 
 
 def delete_customer(customer_id):
@@ -381,7 +394,8 @@ def delete_customer(customer_id):
 def get_customer_by_phone(phone):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT id, name, phone, street, number, reference FROM customers WHERE phone = ?', (phone,))
+        cursor.execute(
+            'SELECT id, name, phone, street, number, reference FROM customers WHERE phone = ?', (phone,))
         return cursor.fetchone()
 
 
@@ -539,5 +553,71 @@ def delete_neighborhood(neighborhood_id):
             raise ValueError(
                 'Não é possível excluir bairro: existem clientes cadastrados neste bairro.'
             )
-        cursor.execute('DELETE FROM neighborhoods WHERE id = ?', (neighborhood_id,))
+        cursor.execute('DELETE FROM neighborhoods WHERE id = ?',
+                       (neighborhood_id,))
         conn.commit()
+
+
+def search_menu_items(search_text):
+    """Busca itens do cardápio por nome"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT m.id, m.name, m.price, m.category_id,
+                   c.name as category_name, m.description
+            FROM menu_items m
+            JOIN categories c ON m.category_id = c.id
+            WHERE m.name LIKE ?
+            ORDER BY m.name
+        ''', (f'%{search_text}%',))
+        return cursor.fetchall()
+
+
+def get_additions_by_category(category_id):
+    """Busca adicionais disponíveis para uma categoria"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT a.id, a.name, a.price
+            FROM additions a
+            JOIN category_addition_link cal ON a.id = cal.addition_id
+            WHERE cal.category_id = ?
+            ORDER BY a.name
+        ''', (category_id,))
+        return cursor.fetchall()
+
+
+def save_order(customer_id, items_data, total_amount, notes=""):
+    """Salva um pedido no banco de dados"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        # Cria o pedido
+        cursor.execute('''
+            INSERT INTO orders (customer_id, total_amount, notes)
+            VALUES (?, ?, ?)
+        ''', (customer_id, total_amount, notes))
+
+        order_id = cursor.lastrowid
+
+        # Adiciona os itens do pedido
+        for item_data in items_data:
+            cursor.execute('''
+                INSERT INTO order_items
+                (order_id, menu_item_id, quantity, unit_price)
+                VALUES (?, ?, ?, ?)
+            ''', (order_id, item_data['menu_item_id'],
+                  item_data['quantity'], item_data['unit_price']))
+
+            order_item_id = cursor.lastrowid
+
+            # Adiciona os adicionais do item
+            for addition_id in item_data.get('additions', []):
+                cursor.execute('''
+                    INSERT INTO order_item_additions
+                    (order_item_id, addition_id)
+                    VALUES (?, ?)
+                ''', (order_item_id, addition_id))
+
+        conn.commit()
+        return order_id

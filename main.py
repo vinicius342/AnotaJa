@@ -1,24 +1,24 @@
-import sys
-import os
-
-# Adiciona o diretório do projeto ao PYTHONPATH
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QAction
+from utils.utils import style
+from utils.printer import Printer
+from utils.log_utils import get_logger
+from ui.order_screen import OrderScreen
+from ui.neighborhood_management import NeighborhoodManagementWindow
+from ui.menu_registration import MenuRegistrationWindow
+from ui.menu_edit import MenuEditWindow
+from ui.customer_management import CustomerManagementWindow
+from database.db import init_db
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
                                QDialogButtonBox, QGridLayout, QLabel,
                                QMainWindow, QMenu, QMenuBar, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
+from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QThread, Signal
+import os
+import sys
 
-from ui.customer_management import CustomerManagementWindow
-from ui.neighborhood_management import NeighborhoodManagementWindow
-from utils.log_utils import get_logger
-from ui.menu_edit import MenuEditWindow
-from ui.menu_registration import MenuRegistrationWindow
-from utils.printer import Printer
-from utils.utils import style
-from database.db import init_db
+# Adiciona o diretório do projeto ao PYTHONPATH
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 
 LOGGER = get_logger(__name__)
 
@@ -74,44 +74,6 @@ class PrintThread(QThread):
         self.finished_signal.emit(self.printer.name)
 
 
-class PrintScreen(QWidget):
-    def __init__(self, title):
-        super().__init__()
-        self.setProperty("class", "tela-impressao")
-        self.setObjectName("TelaImpressao")
-        self.layout = QVBoxLayout()
-        self.setLayout(self.layout)
-
-        self.label = QLabel(title)
-        self.layout.addWidget(self.label)
-
-        self.print_button = QPushButton("Imprimir Pedido")
-        self.layout.addWidget(self.print_button)
-
-        self.print_button.clicked.connect(self.handle_print)
-
-    def handle_print(self):
-        global DEFAULT_PRINTER
-        if DEFAULT_PRINTER is not None:
-            printer = DEFAULT_PRINTER
-        else:
-            QMessageBox.warning(
-                self, "Erro",
-                "Nenhuma impressora selecionada nas configurações.")
-            return
-
-        text = "Pedido #123\n1x X-Burguer\n1x Coca-Cola\nTotal: R$ 25,00"
-        self.thread = PrintThread(printer, text)
-        self.thread.finished_signal.connect(self.print_finished)
-        self.thread.start()
-
-    def print_finished(self, printer_name):
-        QMessageBox.information(
-            self, "Impressão",
-            f"Pedido enviado para a impressora:\n{printer_name}")
-        self.thread = None
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -136,7 +98,7 @@ class MainWindow(QMainWindow):
         gerenciar_cliente_action.triggered.connect(
             self.open_customer_management)
         cliente_menu.addAction(gerenciar_cliente_action)
-        
+
         bairros_action = QAction("Gerenciar Bairros", self)
         bairros_action.triggered.connect(self.open_neighborhood_management)
         cliente_menu.addAction(bairros_action)
@@ -153,11 +115,11 @@ class MainWindow(QMainWindow):
         layout = QGridLayout()
         central_widget.setLayout(layout)
 
-        # Criar 4 telas independentes
-        self.screen1 = PrintScreen("Tela 1")
-        self.screen2 = PrintScreen("Tela 2")
-        self.screen3 = PrintScreen("Tela 3")
-        self.screen4 = PrintScreen("Tela 4")
+        # Criar 4 telas de pedido independentes
+        self.screen1 = OrderScreen("Pedido 1")
+        self.screen2 = OrderScreen("Pedido 2")
+        self.screen3 = OrderScreen("Pedido 3")
+        self.screen4 = OrderScreen("Pedido 4")
 
         layout.addWidget(self.screen1, 0, 0)
         layout.addWidget(self.screen2, 0, 1)
@@ -201,17 +163,18 @@ class MainWindow(QMainWindow):
 
     def open_neighborhood_management(self):
         LOGGER.info('Abrindo gerenciamento de bairros')
-        self.neighborhood_management_window = NeighborhoodManagementWindow(self)
+        self.neighborhood_management_window = NeighborhoodManagementWindow(
+            self)
         self.neighborhood_management_window.show()
 
 
 if __name__ == "__main__":
     LOGGER.info('Aplicação iniciada')
-    
+
     # Inicializa o banco de dados
     init_db()
     LOGGER.info('Banco de dados inicializado')
-    
+
     app = QApplication(sys.argv)
 
     app.setStyleSheet(style)
