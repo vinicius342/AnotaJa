@@ -1,20 +1,22 @@
-from utils.utils import style
-from utils.printer import Printer
-from utils.log_utils import get_logger
-from ui.order_screen import OrderScreen
-from ui.neighborhood_management import NeighborhoodManagementWindow
-from ui.menu_registration import MenuRegistrationWindow
-from ui.menu_edit import MenuEditWindow
-from ui.customer_management import CustomerManagementWindow
-from database.db import init_db
+import os
+import sys
+
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
                                QDialogButtonBox, QGridLayout, QLabel,
                                QMainWindow, QMenu, QMenuBar, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
-from PySide6.QtGui import QAction
-from PySide6.QtCore import Qt, QThread, Signal
-import os
-import sys
+
+from database.db import init_db
+from ui.customer_management import CustomerManagementWindow
+from ui.menu_edit import MenuEditWindow
+from ui.menu_registration import MenuRegistrationWindow
+from ui.neighborhood_management import NeighborhoodManagementWindow
+from ui.order_screen import OrderScreen
+from utils.log_utils import get_logger
+from utils.printer import Printer
+from utils.utils import style
 
 # Adiciona o diretório do projeto ao PYTHONPATH
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -166,6 +168,26 @@ class MainWindow(QMainWindow):
         self.neighborhood_management_window = NeighborhoodManagementWindow(
             self)
         self.neighborhood_management_window.show()
+
+    def closeEvent(self, event):
+        """Finaliza todas as threads antes de fechar a aplicação"""
+        LOGGER.info('Finalizando aplicação e threads...')
+
+        # Finaliza threads das telas de pedido
+        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+            if hasattr(screen, 'item_search_thread'):
+                screen.item_search_thread.quit()
+                screen.item_search_thread.wait()
+
+            # Finaliza thread do widget de busca de clientes
+            if hasattr(screen, 'customer_search'):
+                customer_search = screen.customer_search
+                if hasattr(customer_search, 'search_thread'):
+                    customer_search.search_thread.quit()
+                    customer_search.search_thread.wait()
+
+        LOGGER.info('Todas as threads finalizadas')
+        super().closeEvent(event)
 
 
 if __name__ == "__main__":

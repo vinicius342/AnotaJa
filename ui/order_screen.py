@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem,
@@ -12,6 +12,53 @@ from utils.log_utils import get_logger
 LOGGER = get_logger(__name__)
 
 
+class SearchWorker(QObject):
+    """Worker para busca assíncrona no banco de dados"""
+    customers_found = Signal(list)
+    items_found = Signal(list)
+    search_finished = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.current_search_id = 0
+
+    def search_customers_async(self, search_text, search_id):
+        """Busca clientes de forma assíncrona"""
+        try:
+            if search_id != self.current_search_id:
+                return  # Busca cancelada, uma nova foi iniciada
+
+            customers = search_customers(search_text)
+
+            if search_id == self.current_search_id:
+                self.customers_found.emit(customers)
+        except Exception as e:
+            LOGGER.error(f"Erro na busca assíncrona de clientes: {e}")
+        finally:
+            if search_id == self.current_search_id:
+                self.search_finished.emit()
+
+    def search_items_async(self, search_text, search_id):
+        """Busca itens de forma assíncrona"""
+        try:
+            if search_id != self.current_search_id:
+                return  # Busca cancelada, uma nova foi iniciada
+
+            items = search_menu_items(search_text)
+
+            if search_id == self.current_search_id:
+                self.items_found.emit(items)
+        except Exception as e:
+            LOGGER.error(f"Erro na busca assíncrona de itens: {e}")
+        finally:
+            if search_id == self.current_search_id:
+                self.search_finished.emit()
+
+    def cancel_current_search(self):
+        """Cancela a busca atual"""
+        self.current_search_id += 1
+
+
 class CustomerSearchWidget(QWidget):
     """Widget para busca de clientes com sugestões em tempo real"""
     # Sinal emitido quando um cliente é selecionado
@@ -21,13 +68,24 @@ class CustomerSearchWidget(QWidget):
         super().__init__(parent)
         self.current_customers = []
         self.selected_customer_data = None  # Dados do cliente selecionado
+        self.current_search_id = 0
+        self.is_searching = False
         self.setup_ui()
         self.search_timer = QTimer()
         self.search_timer.setSingleShot(True)
         self.search_timer.timeout.connect(self.perform_search)
 
+        # Worker para busca assíncrona
+        self.search_worker = SearchWorker()
+        self.search_thread = QThread()
+        self.search_worker.moveToThread(self.search_thread)
+        self.search_worker.customers_found.connect(self.on_customers_found)
+        self.search_worker.search_finished.connect(self.on_search_finished)
+        self.search_thread.start()
+
     def setup_ui(self):
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
         # Campo de busca
@@ -38,58 +96,104 @@ class CustomerSearchWidget(QWidget):
         self.search_line.textChanged.connect(self.on_text_changed)
         layout.addWidget(self.search_line)
 
-        # Lista de sugestões
-        self.suggestions_list = QListWidget()
-        self.suggestions_list.setMaximumHeight(150)
-        self.suggestions_list.setMaximumWidth(350)  # Limite de largura
-        self.suggestions_list.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.suggestions_list.setWordWrap(False)
-        self.suggestions_list.hide()
-        self.suggestions_list.itemClicked.connect(self.on_suggestion_selected)
-        layout.addWidget(self.suggestions_list)
+        # Dropdown de sugestões (sobreposto)
+        self.suggestions_dropdown = QListWidget(self)
+        self.suggestions_dropdown.setWindowFlags(Qt.WindowType.Popup)
+        self.suggestions_dropdown.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ccc;
+                background-color: white;
+                alternate-background-color: #f5f5f5;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #eee;
+            }
+            QListWidget::item:hover {
+                background-color: #e3f2fd;
+            }
+            QListWidget::item:selected {
+                background-color: #2196f3;
+                color: white;
+            }
+        """)
+        self.suggestions_dropdown.setMaximumHeight(200)
+        self.suggestions_dropdown.hide()
+        self.suggestions_dropdown.itemClicked.connect(
+            self.on_suggestion_selected
+        )
 
     def on_text_changed(self, text):
         """Inicia busca com delay para evitar muitas consultas"""
         if len(text) >= 2:
-            self.search_timer.start(300)  # Delay de 300ms
+            self.search_timer.start(500)  # Delay aumentado para 500ms
         else:
-            self.suggestions_list.hide()
+            self.suggestions_dropdown.hide()
+            self.search_worker.cancel_current_search()
 
     def perform_search(self):
-        """Executa a busca no banco de dados"""
+        """Executa a busca no banco de dados de forma assíncrona"""
         search_text = self.search_line.text().strip()
+
         if len(search_text) < 2:
             return
 
-        try:
-            # Busca clientes no banco
-            customers = search_customers(search_text)
-            self.current_customers = customers
+        # Cancela busca anterior se ainda estiver executando
+        if self.is_searching:
+            self.search_worker.cancel_current_search()
 
-            # Atualiza lista de sugestões
-            self.suggestions_list.clear()
+        # Indica que uma busca está em andamento
+        self.is_searching = True
+        self.current_search_id += 1
 
-            if customers:
-                for customer in customers[:10]:  # Limita a 10 sugestões
-                    # Nome - Telefone
-                    item_text = f"{customer[1]} - {customer[2]}"
-                    if customer[3]:  # Se tem rua
-                        item_text += f" - {customer[3]}"
-                    if customer[4]:  # Se tem número
-                        item_text += f", {customer[4]}"
+        # Mostra indicador de carregamento
+        self.search_line.setStyleSheet("background-color: #fffacd;")
 
-                    item = QListWidgetItem(item_text)
-                    item.setData(Qt.ItemDataRole.UserRole, customer)
-                    self.suggestions_list.addItem(item)
+        # Inicia busca assíncrona
+        QTimer.singleShot(0, lambda: self.search_worker.search_customers_async(
+            search_text, self.current_search_id
+        ))
 
-                self.suggestions_list.show()
-            else:
-                self.suggestions_list.hide()
+    def on_customers_found(self, customers):
+        """Callback quando clientes são encontrados"""
+        self.current_customers = customers
+        self.suggestions_dropdown.clear()
 
-        except Exception as e:
-            LOGGER.error(f"Erro ao buscar clientes: {e}")
-            self.suggestions_list.hide()
+        if customers:
+            for customer in customers[:10]:  # Limita a 10 sugestões
+                # Nome - Telefone
+                item_text = f"{customer[1]} - {customer[2]}"
+                if customer[3]:  # Se tem rua
+                    item_text += f" - {customer[3]}"
+                if customer[4]:  # Se tem número
+                    item_text += f", {customer[4]}"
+
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, customer)
+                self.suggestions_dropdown.addItem(item)
+
+            self.show_dropdown()
+        else:
+            self.suggestions_dropdown.hide()
+
+    def on_search_finished(self):
+        """Callback quando a busca termina"""
+        self.is_searching = False
+        # Remove indicador de carregamento
+        self.search_line.setStyleSheet("")
+
+    def show_dropdown(self):
+        """Mostra o dropdown posicionado abaixo do campo de busca"""
+        if (self.suggestions_dropdown.count() > 0 and
+                not self.search_line.text().strip() == ""):
+            # Posiciona o dropdown
+            rect = self.search_line.rect()
+            pos = self.search_line.mapToGlobal(rect.bottomLeft())
+            self.suggestions_dropdown.move(pos)
+            self.suggestions_dropdown.resize(self.search_line.width(), 200)
+            self.suggestions_dropdown.show()
+        else:
+            self.suggestions_dropdown.hide()
 
     def on_suggestion_selected(self, item):
         """Quando uma sugestão é selecionada"""
@@ -99,7 +203,7 @@ class CustomerSearchWidget(QWidget):
             search_text = f"{customer_data[1]} - {customer_data[2]}"
             self.search_line.setText(search_text)
 
-            self.suggestions_list.hide()
+            self.suggestions_dropdown.hide()
             self.selected_customer_data = {
                 'id': customer_data[0],
                 'name': customer_data[1],
@@ -116,8 +220,19 @@ class CustomerSearchWidget(QWidget):
     def clear_selection(self):
         """Limpa a seleção atual"""
         self.search_line.clear()
-        self.suggestions_list.hide()
+        self.suggestions_dropdown.hide()
         self.selected_customer_data = None
+        # Cancela busca em andamento
+        if self.is_searching:
+            self.search_worker.cancel_current_search()
+            self.on_search_finished()
+
+    def closeEvent(self, event):
+        """Cleanup quando o widget é fechado"""
+        if hasattr(self, 'search_thread'):
+            self.search_thread.quit()
+            self.search_thread.wait()
+        super().closeEvent(event)
 
 
 class OrderScreen(QWidget):
@@ -128,6 +243,24 @@ class OrderScreen(QWidget):
         self.screen_title = screen_title
         self.selected_customer = None
         self.order_items = []
+        self.current_item_search_id = 0
+        self.is_searching_items = False
+
+        # Worker para busca assíncrona de itens
+        self.item_search_worker = SearchWorker()
+        self.item_search_thread = QThread()
+        self.item_search_worker.moveToThread(self.item_search_thread)
+        self.item_search_worker.items_found.connect(self.on_items_found)
+        self.item_search_worker.search_finished.connect(
+            self.on_item_search_finished
+        )
+        self.item_search_thread.start()
+
+        # Timer para busca de itens
+        self.item_search_timer = QTimer()
+        self.item_search_timer.setSingleShot(True)
+        self.item_search_timer.timeout.connect(self.perform_item_search)
+
         self.setup_ui()
 
     def setup_ui(self):
@@ -156,13 +289,30 @@ class OrderScreen(QWidget):
         self.item_search.returnPressed.connect(self.on_item_search_enter)
         left_col.addWidget(self.item_search)
 
-        # Lista de sugestões de itens
-        self.item_suggestions = QListWidget()
-        self.item_suggestions.setMaximumHeight(150)
-        self.item_suggestions.setMaximumWidth(350)
+        # Lista de sugestões de itens (dropdown sobreposto)
+        self.item_suggestions = QListWidget(self)
+        self.item_suggestions.setWindowFlags(Qt.WindowType.Popup)
+        self.item_suggestions.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #ccc;
+                background-color: white;
+                alternate-background-color: #f5f5f5;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #eee;
+            }
+            QListWidget::item:hover {
+                background-color: #e3f2fd;
+            }
+            QListWidget::item:selected {
+                background-color: #2196f3;
+                color: white;
+            }
+        """)
+        self.item_suggestions.setMaximumHeight(200)
         self.item_suggestions.hide()
         self.item_suggestions.itemClicked.connect(self.on_item_selected)
-        left_col.addWidget(self.item_suggestions)
 
         left_col.addStretch()
 
@@ -408,36 +558,79 @@ class OrderScreen(QWidget):
     def on_item_search_changed(self, text):
         """Busca itens quando o texto mudar"""
         if len(text) >= 2:
-            self.search_menu_items(text)
+            self.item_search_timer.start(500)  # Delay de 500ms
         else:
             self.item_suggestions.hide()
+            self.item_search_worker.cancel_current_search()
 
     def on_item_search_enter(self):
         """Atalho Enter para buscar item"""
         text = self.item_search.text().strip()
         if text:
-            self.search_menu_items(text)
+            self.perform_item_search()
+
+    def perform_item_search(self):
+        """Executa busca de itens de forma assíncrona"""
+        search_text = self.item_search.text().strip()
+        if len(search_text) < 2:
+            return
+
+        # Cancela busca anterior se ainda estiver executando
+        if self.is_searching_items:
+            self.item_search_worker.cancel_current_search()
+
+        # Indica que uma busca está em andamento
+        self.is_searching_items = True
+        self.current_item_search_id += 1
+
+        # Mostra indicador de carregamento
+        self.item_search.setStyleSheet("background-color: #fffacd;")
+
+        # Inicia busca assíncrona
+        QTimer.singleShot(
+            0, lambda: self.item_search_worker.search_items_async(
+                search_text, self.current_item_search_id
+            )
+        )
+
+    def on_items_found(self, items):
+        """Callback quando itens são encontrados"""
+        self.item_suggestions.clear()
+
+        if items:
+            for item in items[:10]:  # Limita a 10 sugestões
+                # item: (id, name, price, category_id, category_name, desc)
+                item_text = f"{item[1]} - R$ {item[2]:.2f} ({item[4]})"
+                suggestion = QListWidgetItem(item_text)
+                suggestion.setData(Qt.ItemDataRole.UserRole, item)
+                self.item_suggestions.addItem(suggestion)
+
+            self.show_item_dropdown()
+        else:
+            self.item_suggestions.hide()
+
+    def on_item_search_finished(self):
+        """Callback quando a busca de itens termina"""
+        self.is_searching_items = False
+        # Remove indicador de carregamento
+        self.item_search.setStyleSheet("")
 
     def search_menu_items(self, search_text):
-        """Busca itens do cardápio"""
-        try:
-            items = search_menu_items(search_text)
-            self.item_suggestions.clear()
+        """Método legado - agora usa busca assíncrona"""
+        # Redireciona para busca assíncrona
+        self.perform_item_search()
 
-            if items:
-                for item in items[:10]:  # Limita a 10 sugestões
-                    # item: (id, name, price, category_id, category_name, desc)
-                    item_text = f"{item[1]} - R$ {item[2]:.2f} ({item[4]})"
-                    suggestion = QListWidgetItem(item_text)
-                    suggestion.setData(Qt.ItemDataRole.UserRole, item)
-                    self.item_suggestions.addItem(suggestion)
-
-                self.item_suggestions.show()
-            else:
-                self.item_suggestions.hide()
-
-        except Exception as e:
-            LOGGER.error(f"Erro ao buscar itens: {e}")
+    def show_item_dropdown(self):
+        """Mostra o dropdown de itens posicionado abaixo do campo"""
+        if (self.item_suggestions.count() > 0 and
+                not self.item_search.text().strip() == ""):
+            # Posiciona o dropdown
+            rect = self.item_search.rect()
+            pos = self.item_search.mapToGlobal(rect.bottomLeft())
+            self.item_suggestions.move(pos)
+            self.item_suggestions.resize(self.item_search.width(), 200)
+            self.item_suggestions.show()
+        else:
             self.item_suggestions.hide()
 
     def on_item_selected(self, item):
@@ -551,8 +744,8 @@ class OrderScreen(QWidget):
         self.load_additions(item_data[3])  # category_id
 
         # Salva dados do item no dialog
-        dialog.item_data = item_data
-        dialog.selected_additions_data = []
+        setattr(dialog, 'item_data', item_data)
+        setattr(dialog, 'selected_additions_data', [])
 
         dialog.exec()
 
@@ -668,3 +861,10 @@ class OrderScreen(QWidget):
         msg += f"Total: R$ {total:.2f}"
 
         QMessageBox.information(self, "Item Adicionado", msg)
+
+    def closeEvent(self, event):
+        """Cleanup quando o widget é fechado"""
+        if hasattr(self, 'item_search_thread'):
+            self.item_search_thread.quit()
+            self.item_search_thread.wait()
+        super().closeEvent(event)

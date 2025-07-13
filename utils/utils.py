@@ -15,7 +15,7 @@ QDialog {
 QPushButton {
     background-color: #4CAF50;
     border: none;
-    color: white;
+    color: #222;
     padding: 8px 16px;
     text-align: center;
     font-size: 14px;
@@ -58,7 +58,7 @@ QTableWidget::item {
 
 QTableWidget::item:selected {
     background-color: #4CAF50;
-    color: white;
+    color: #222;
 }
 
 QComboBox {
@@ -83,6 +83,31 @@ QComboBox::drop-down {
     border-bottom-right-radius: 3px;
 }
 
+QComboBox, QComboBox QAbstractItemView {
+    color: #222;
+    background-color: white;
+}
+
+QListWidget, QListWidget::item {
+    color: #222;
+    background-color: white;
+}
+
+QListWidget::item:selected {
+    background-color: #4CAF50;
+    color: #fff;
+}
+
+QMenu, QMenu::item {
+    color: #222;
+    background-color: white;
+}
+
+QMenu::item:selected {
+    background-color: #4CAF50;
+    color: #fff;
+}
+
 QLabel {
     color: #333333;
 }
@@ -98,6 +123,7 @@ QTabBar::tab {
     margin-right: 2px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
+    color: #222;
 }
 
 QTabBar::tab:selected {
@@ -114,26 +140,16 @@ QMenuBar {
     border-bottom: 1px solid #ddd;
 }
 
+QMenuBar, QMenuBar::item {
+    color: #222;
+}
+
 QMenuBar::item {
     padding: 8px 12px;
 }
 
 QMenuBar::item:selected {
     background-color: #4CAF50;
-    color: white;
-}
-
-QMenu {
-    background-color: white;
-    border: 1px solid #ddd;
-}
-
-QMenu::item {
-    padding: 8px 20px;
-}
-
-QMenu::item:selected {
-    background-color: #4CAF50;
-    color: white;
+    color: black;
 }
 """
