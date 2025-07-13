@@ -32,29 +32,32 @@ class AjustesDialog(QDialog):
         super().__init__(parent)
         LOGGER.info('AjustesDialog inicializado')
         self.setWindowTitle("Ajustes de Impressora")
-        self.layout = QVBoxLayout()
-        self.setLayout(self.layout)
+        self.vbox = QVBoxLayout()
+        self.setLayout(self.vbox)
 
         self.label = QLabel("Escolha a impressora padrão:")
-        self.layout.addWidget(self.label)
+        self.vbox.addWidget(self.label)
 
         self.combo = QComboBox()
         self.printers = Printer.list_printers()
         for printer in self.printers:
             self.combo.addItem(printer.name)
-        self.layout.addWidget(self.combo)
+        self.vbox.addWidget(self.combo)
 
         self.buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
         )
-        self.layout.addWidget(self.buttons)
+        self.vbox.addWidget(self.buttons)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
     def get_selected_printer(self):
         idx = self.combo.currentIndex()
         LOGGER.info(
-            f'Impressora selecionada: {self.printers[idx].name if idx != -1 else None}')
+            f'Impressora selecionada: '
+            f'{self.printers[idx].name if idx != -1 else None}'
+        )
         if idx != -1:
             return self.printers[idx]
         return None
@@ -138,7 +141,7 @@ class MainWindow(QMainWindow):
                 if p.name == DEFAULT_PRINTER.name:
                     dialog.combo.setCurrentIndex(i)
                     break
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             DEFAULT_PRINTER = dialog.get_selected_printer()
             if DEFAULT_PRINTER:
                 QMessageBox.information(
@@ -149,13 +152,13 @@ class MainWindow(QMainWindow):
     def open_menu_registration(self):
         LOGGER.info('Abrindo cadastro de cardápio')
         self.menu_registration_window = MenuRegistrationWindow()
-        self.menu_registration_window.setWindowFlags(Qt.Window)
+        self.menu_registration_window.setWindowFlags(Qt.WindowType.Window)
         self.menu_registration_window.show()
 
     def open_menu_edit(self):
         LOGGER.info('Abrindo edição de cardápio')
         self.menu_edit_window = MenuEditWindow()
-        self.menu_edit_window.setWindowFlags(Qt.Window)
+        self.menu_edit_window.setWindowFlags(Qt.WindowType.Window)
         self.menu_edit_window.show()
 
     def open_customer_management(self):
