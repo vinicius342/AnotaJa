@@ -1,9 +1,11 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDoubleSpinBox, QPushButton
+from PySide6.QtWidgets import (QDialog, QDoubleSpinBox, QHBoxLayout, QLabel,
+                               QLineEdit, QPushButton, QVBoxLayout)
+
 
 class EditAdditionDialog(QDialog):
     def __init__(self, name, price, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Editar Adicional")
+        self.setWindowTitle("Editar Complemento")
         self.setModal(True)
         layout = QVBoxLayout()
         # Nome

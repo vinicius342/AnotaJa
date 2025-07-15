@@ -7,8 +7,9 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFrame,
                                QTableWidget, QTableWidgetItem, QTextEdit,
                                QVBoxLayout, QWidget)
 
-from database.db import (get_additions_by_category, search_customers,
-                         search_menu_items)
+from database.db import (get_all_additions_for_item,
+                         get_all_additions_for_item_with_mandatory_info,
+                         search_customers, search_menu_items)
 from utils.log_utils import get_logger
 from utils.utils import (CUSTOMER_LINEEDIT_BASE_STYLE,
                          CUSTOMER_LINEEDIT_NO_BORDER_STYLE,
@@ -198,7 +199,7 @@ class CustomerSearchWidget(QWidget):
                     Qt.ItemDataRole.UserRole, {"is_add_new": True})
                 self.suggestions_list.addItem(add_customer_item)
             # Altura fixa para evitar movimento da barra
-            fixed_height = 200  # Altura fixa para 5 itens
+            fixed_height = 120  # Altura menor para evitar problemas de buffer
             self.suggestions_list.setMaximumHeight(fixed_height)
             self.suggestions_list.setMinimumHeight(fixed_height)
             # Remove o border-bottom colorido da QLineEdit
@@ -296,6 +297,7 @@ class ItemSearchWidget(QWidget):
     item_selected = Signal(tuple)
     suggestions_list_shown = Signal()
     suggestions_list_hidden = Signal()
+    items_updated = Signal()
 
     def suggestions_list_key_press(self, event):
         # Se pressionar seta para cima no primeiro item, volta o foco para o QLineEdit
@@ -372,6 +374,7 @@ class ItemSearchWidget(QWidget):
         try:
             self.items = search_menu_items("")  # Carrega todos os itens
             self.worker.set_items(self.items)
+            self.items_updated.emit()
         except Exception as e:
             LOGGER.error(f"Erro ao carregar itens do menu: {e}")
             self.items = []
@@ -402,7 +405,7 @@ class ItemSearchWidget(QWidget):
         # Adiciona os itens filtrados na lista
         for item in filtered_items:
             # item: (id, name, price, category_id, category_name, description)
-            suggestion_text = f"{item[1]} - R$ {item[2]:.2f}"
+            suggestion_text = f"{item[1]}"
             self.item_data[suggestion_text] = item
             self.suggestions_list.addItem(suggestion_text)
 
@@ -413,7 +416,7 @@ class ItemSearchWidget(QWidget):
         if self.suggestions_list.count() > 0:
             self.suggestions_list.show()
             # Altura fixa para evitar movimento da barra
-            fixed_height = 200  # Altura fixa para 5 itens
+            fixed_height = 120  # Altura menor para evitar problemas de buffer
             self.suggestions_list.setMaximumHeight(fixed_height)
             self.suggestions_list.setMinimumHeight(fixed_height)
             # Remove o border-bottom colorido da QLineEdit
@@ -670,7 +673,7 @@ class OrderScreen(QWidget):
         nome_item = QTableWidgetItem("X-Burguer")
         categoria_item = QTableWidgetItem("Lanche")
 
-        # Botão de visualizar (olho) - mostra adicionais e observações
+        # Botão de visualizar (olho) - mostra complementos e observações
         view_btn = QPushButton()
         view_btn.setIcon(QIcon.fromTheme("view-visible"))
         view_btn.setToolTip("Ver detalhes")
@@ -680,6 +683,10 @@ class OrderScreen(QWidget):
         self.order_table.setItem(row, 1, nome_item)
         self.order_table.setItem(row, 2, categoria_item)
         self.order_table.setCellWidget(row, 3, view_btn)
+
+        # Atualiza lista de sugestões de itens após cadastro
+        if hasattr(self, 'item_search') and self.item_search:
+            self.item_search.load_items()
 
     def clear_order(self):
         """Limpa o pedido atual"""
@@ -716,7 +723,7 @@ class OrderScreen(QWidget):
         self.clear_order()
 
     def show_item_details(self, row):
-        """Mostra diálogo com detalhes do item (adicionais e observações)"""
+        """Mostra diálogo com detalhes do item (complementos e observações)"""
         dialog = QDialog(self)
         dialog.setWindowTitle("Detalhes do Item")
         dialog.setModal(True)
@@ -734,8 +741,8 @@ class OrderScreen(QWidget):
         name_label.setFont(font)
         layout.addWidget(name_label)
 
-        # Adicionais (exemplo)
-        layout.addWidget(QLabel("Adicionais:"))
+        # Complementos (exemplo)
+        layout.addWidget(QLabel("Complementos:"))
         adicionais_text = QTextEdit()
         adicionais_text.setMaximumHeight(80)
         adicionais_text.setText("Bacon, Ovo, Queijo extra")
@@ -821,7 +828,7 @@ class OrderScreen(QWidget):
         menu.exec(self.order_table.mapToGlobal(position))
 
     def open_add_item_modal(self, item_data):
-        """Abre modal para adicionar item com adicionais"""
+        """Abre modal para adicionar item com complementos"""
         # item_data: (id, name, price, category_id, category_name, description)
         dialog = QDialog(self)
         dialog.setWindowTitle("Adicionar Item")
@@ -847,17 +854,17 @@ class OrderScreen(QWidget):
         header_layout.addStretch()
         layout.addLayout(header_layout)
 
-        # Seção de adicionais
-        additions_label = QLabel("Adicionais:")
+        # Seção de complementos
+        additions_label = QLabel("Complementos:")
         additions_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(additions_label)
 
-        # Combo de adicionais + quantidade
+        # Combo de complementos + quantidade
         additions_layout = QHBoxLayout()
 
-        # Combo para selecionar adicional
+        # Combo para selecionar complemento
         self.additions_combo = QComboBox()
-        self.additions_combo.addItem("Selecione um adicional...")
+        self.additions_combo.addItem("Selecione um complemento...")
         additions_layout.addWidget(self.additions_combo)
 
         # Quantidade
@@ -879,7 +886,7 @@ class OrderScreen(QWidget):
 
         layout.addLayout(additions_layout)
 
-        # Lista de adicionais selecionados
+        # Lista de complementos selecionados
         self.selected_additions = QListWidget()
         self.selected_additions.setMaximumHeight(100)
         layout.addWidget(self.selected_additions)
@@ -915,8 +922,8 @@ class OrderScreen(QWidget):
 
         layout.addLayout(buttons_layout)
 
-        # Carrega adicionais da categoria
-        self.load_additions(item_data[3])  # category_id
+        # Carrega complementos da categoria e específicos do item
+        self.load_additions(item_data[3], item_data[0])  # category_id, item_id
 
         # Salva dados do item no dialog
         setattr(dialog, 'item_data', item_data)
@@ -924,25 +931,27 @@ class OrderScreen(QWidget):
 
         dialog.exec()
 
-    def load_additions(self, category_id):
-        """Carrega adicionais da categoria"""
+    def load_additions(self, category_id, item_id):
+        """Carrega complementos da categoria e específicos do item com info de obrigatoriedade"""
         try:
-            additions = get_additions_by_category(category_id)
+            additions = get_all_additions_for_item_with_mandatory_info(
+                item_id, category_id)
             self.additions_combo.clear()
-            self.additions_combo.addItem("Selecione um adicional...")
+            self.additions_combo.addItem("Selecione um complemento...")
 
             for addition in additions:
-                # addition: (id, name, price)
-                text = f"{addition[1]} - R$ {addition[2]:.2f}"
+                # addition: (id, name, price, is_mandatory)
+                mandatory_text = " (OBRIGATÓRIO)" if addition[3] else ""
+                text = f"{addition[1]} - R$ {addition[2]:.2f}{mandatory_text}"
                 self.additions_combo.addItem(text, addition)
 
         except Exception as e:
-            LOGGER.error(f"Erro ao carregar adicionais: {e}")
+            LOGGER.error(f"Erro ao carregar complementos: {e}")
 
     def add_addition_to_list(self, dialog):
-        """Adiciona adicional à lista"""
+        """Adiciona complemento à lista"""
         current_index = self.additions_combo.currentIndex()
-        if current_index <= 0:  # Não selecionou adicional válido
+        if current_index <= 0:  # Não selecionou complemento válido
             return
 
         addition_data = self.additions_combo.itemData(current_index)
@@ -997,7 +1006,7 @@ class OrderScreen(QWidget):
         row = self.order_table.rowCount()
         self.order_table.insertRow(row)
 
-        # Monta texto dos adicionais
+        # Monta texto dos complementos
         additions_text = ""
         if dialog.selected_additions_data:
             additions_list = [f"{a['qty']}x {a['name']}"
@@ -1030,10 +1039,14 @@ class OrderScreen(QWidget):
 
         msg = f"Item adicionado: {item_data[1]}\n"
         if additions_text:
-            msg += f"Adicionais: {additions_text}\n"
+            msg += f"Complementos: {additions_text}\n"
         msg += f"Total: R$ {total:.2f}"
 
         QMessageBox.information(self, "Item Adicionado", msg)
+
+        # Atualiza lista de sugestões de itens após cadastro via modal
+        if hasattr(self, 'item_search') and self.item_search:
+            self.item_search.load_items()
 
     def closeEvent(self, event):
         """Finaliza threads e remove event filter ao fechar o widget"""

@@ -160,7 +160,17 @@ class MainWindow(QMainWindow):
         LOGGER.info('Abrindo cadastro de cardápio')
         self.menu_registration_window = MenuRegistrationWindow()
         self.menu_registration_window.setWindowFlags(Qt.WindowType.Window)
+        # Conecta o sinal de item adicionado para atualizar as listas
+        self.menu_registration_window.item_added.connect(self.refresh_items)
         self.menu_registration_window.show()
+
+    def refresh_items(self):
+        """Atualiza as listas de itens em todas as telas de pedidos após cadastro."""
+        LOGGER.info('Atualizando listas de itens após cadastro')
+        # Atualiza todos os widgets de busca de itens
+        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+            if hasattr(screen, 'item_search'):
+                screen.item_search.load_items()
 
     def open_menu_edit(self):
         LOGGER.info('Abrindo edição de cardápio')

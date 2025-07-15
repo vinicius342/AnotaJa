@@ -10,12 +10,13 @@ from PySide6.QtWidgets import (QDialog, QDoubleSpinBox, QHBoxLayout,
 from database.db import (add_addition, add_category, add_menu_item,
                          delete_addition, delete_category, delete_menu_item,
                          get_all_additions_with_id, get_categories,
-                         get_category_additions, get_menu_items,
-                         set_category_additions, update_addition,
-                         update_category, get_category_id)
+                         get_category_additions, get_category_id,
+                         get_menu_items, set_category_additions,
+                         update_addition, update_category)
+from utils.log_utils import get_logger
+
 from .dialogs import CategoryAdditionsDialog, MenuEditDialogItem
 from .dialogs_edit_addition import EditAdditionDialog
-from utils.log_utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -113,8 +114,10 @@ class MenuEditWindow(QDialog):
         # Campo de pesquisa
         search_layout = QHBoxLayout()
         self.addition_search_input = QLineEdit()
-        self.addition_search_input.setPlaceholderText("Pesquisar adicional pelo nome...")
-        self.addition_search_input.textChanged.connect(self.refresh_additions_list)
+        self.addition_search_input.setPlaceholderText(
+            "Pesquisar complemento pelo nome...")
+        self.addition_search_input.textChanged.connect(
+            self.refresh_additions_list)
         search_layout.addWidget(QLabel("Buscar:"))
         search_layout.addWidget(self.addition_search_input)
         layout.addLayout(search_layout)
@@ -131,15 +134,18 @@ class MenuEditWindow(QDialog):
             if item.layout():
                 self.clear_layout(item.layout())
         # Filtra adicionais pelo campo de busca
-        search = self.addition_search_input.text().strip().lower() if hasattr(self, 'addition_search_input') else ''
+        search = self.addition_search_input.text().strip().lower() if hasattr(self,
+                                                                              'addition_search_input') else ''
         filtered = [a for a in self.additions if search in a[1].lower()]
         for i, add in enumerate(filtered):
             item_text = f"{add[1]}   R$ {add[2]:.2f}"
             h = QHBoxLayout()
             edit_btn = QPushButton("Editar")
-            edit_btn.clicked.connect(partial(self.edit_addition, self.additions.index(add)))
+            edit_btn.clicked.connect(
+                partial(self.edit_addition, self.additions.index(add)))
             del_btn = QPushButton("Excluir")
-            del_btn.clicked.connect(partial(self.delete_addition, self.additions.index(add)))
+            del_btn.clicked.connect(
+                partial(self.delete_addition, self.additions.index(add)))
             label = QLabel(item_text)
             h.addWidget(label)
             h.addWidget(edit_btn)
@@ -151,7 +157,7 @@ class MenuEditWindow(QDialog):
         item = self.menu_items[row]
         item_id = item[0]
         dialog = MenuEditDialogItem(
-            item[1:], self.categories, self.additions, None)
+            item[1:], self.categories, self.additions, None, item_id)
         dialog.setWindowFlags(Qt.Window)
         if dialog.exec():
             updated_item = dialog.get_item()
@@ -241,7 +247,7 @@ class MenuEditWindow(QDialog):
         name = self.addition_new_input.text().strip()
         price = self.addition_price_input.value()
         logger.info(
-            f'Tentando adicionar adicional (edit): {name} - R$ {price:.2f}')
+            f'Tentando adicionar complemento (edit): {name} - R$ {price:.2f}')
         if name and not any(a[1] == name for a in self.additions):
             add_addition(name, price)
             self.additions = get_all_additions_with_id()
@@ -301,7 +307,8 @@ class MenuEditWindow(QDialog):
                 # Busca o ID da categoria para atualizar sem perder vínculos
                 category_id = get_category_id(old_name)
                 if category_id is None:
-                    QMessageBox.warning(self, "Erro", "Categoria não encontrada no banco.")
+                    QMessageBox.warning(
+                        self, "Erro", "Categoria não encontrada no banco.")
                     return
                 try:
                     update_category(category_id, new_name)
