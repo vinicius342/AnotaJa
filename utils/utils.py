@@ -1,9 +1,59 @@
+# Estilos para CustomerSearchWidget
+CUSTOMER_LINEEDIT_BASE_STYLE = (
+    "QLineEdit {"
+    "padding: 8px;"
+    "border: 2px solid #ccc;"
+    "border-radius: 4px 4px 0 0;"
+    "font-size: 14px;"
+    "background-color: white;"
+    "}"
+    "QLineEdit:focus {"
+    "border-color: #4CAF50;"
+    "}"
+)
+
+CUSTOMER_LINEEDIT_NO_BORDER_STYLE = (
+    "QLineEdit {"
+    "padding: 8px;"
+    "border: 2px solid #ccc;"
+    "border-radius: 4px 4px 0 0;"
+    "font-size: 14px;"
+    "background-color: white;"
+    "border-bottom: none;"
+    "}"
+    "QLineEdit:focus {"
+    "border-color: #4CAF50;"
+    "border-bottom: none;"
+    "}"
+)
+
+SUGGESTIONS_LIST_BASE_STYLE = (
+    "QListWidget {"
+    "border: none;"
+    "border-radius: 0 0 4px 4px;"
+    "background-color: white;"
+    "selection-background-color: #e0e0e0;"
+    "selection-color: #222;"
+    "outline: none;"
+    "}"
+    "QListWidget::item {"
+    "padding: 8px;"
+    "border-bottom: 1px solid #eee;"
+    "}"
+    "QListWidget::item:hover {"
+    "background-color: #f0f8ff;"
+    "}"
+    "QListWidget::item:selected {"
+    "background-color: #e0e0e0;"
+    "color: #222;"
+    "}"
+)
 """
 Utilitários gerais para a aplicação AnotaJa.
 """
 
 # Estilo CSS para a aplicação
-style = """
+STYLE = """
 QMainWindow {
     background-color: #f5f5f5;
 }
@@ -37,12 +87,12 @@ QPushButton:disabled {
 }
 
 QLineEdit {
-    border: 2px solid #ddd;
-    border-radius: 4px;
-    padding: 5px;
+    padding: 8px;
+    border: 2px solid #ccc;
+    border-radius: 4px 4px 0 0;
     font-size: 14px;
+    background-color: white;
 }
-
 QLineEdit:focus {
     border-color: #4CAF50;
 }
@@ -110,6 +160,8 @@ QMenu::item:selected {
 
 QLabel {
     color: #333333;
+    padding: 4px 4px;
+    margin: 0px 0px;
 }
 
 QTabWidget::pane {
@@ -128,11 +180,12 @@ QTabBar::tab {
 
 QTabBar::tab:selected {
     background-color: #4CAF50;
-    color: white;
+    color: #222;
+    border-top: 2px solid #388e3c;
 }
 
 QTabBar::tab:hover {
-    background-color: #e0e0e0;
+    background-color: #c8e6c9;
 }
 
 QMenuBar {

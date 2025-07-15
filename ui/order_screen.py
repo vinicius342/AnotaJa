@@ -1,288 +1,520 @@
-from PySide6.QtCore import QCoreApplication, QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QIcon, QKeyEvent
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QHeaderView,
-                               QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QPushButton, QTableWidget, QTableWidgetItem,
+from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtGui import QAction, QFont, QIcon
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QFrame,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QListView, QListWidget, QListWidgetItem, QMenu,
+                               QMessageBox, QPushButton, QSpinBox,
+                               QTableWidget, QTableWidgetItem, QTextEdit,
                                QVBoxLayout, QWidget)
 
 from database.db import (get_additions_by_category, search_customers,
                          search_menu_items)
 from utils.log_utils import get_logger
+from utils.utils import (CUSTOMER_LINEEDIT_BASE_STYLE,
+                         CUSTOMER_LINEEDIT_NO_BORDER_STYLE,
+                         SUGGESTIONS_LIST_BASE_STYLE)
 
 LOGGER = get_logger(__name__)
 
 
-class SimpleDropdown(QListWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.search_widget = parent
+class ItemFilterWorker(QObject):
+    """
+    Worker que executa a filtragem de itens em uma thread separada.
+    """
+    finished = Signal(
+        list, str)  # Sinal emitido com a lista filtrada e o texto original
 
-    def keyPressEvent(self, event):
-        key = event.key()
-        text = event.text()
-        is_printable = text and text.isprintable(
-        ) and not event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        is_backspace = key == Qt.Key.Key_Backspace
+    def __init__(self, items):
+        super().__init__()
+        self.items = items
 
-        if (is_printable or is_backspace):
-            if self.search_widget and hasattr(self.search_widget, 'search_line'):
-                self.search_widget.search_line.setFocus()
-                # Temporariamente desconecta textChanged para evitar dupla busca
-                search_widget = self.search_widget
-                search_widget.search_line.textChanged.disconnect()
-                # Repassa o evento para o QLineEdit
-                new_event = QKeyEvent(
-                    event.type(), key, event.modifiers(), text)
-                QCoreApplication.postEvent(
-                    search_widget.search_line, new_event)
-
-                def reconnect_and_search():
-                    if search_widget and hasattr(search_widget, 'search_line'):
-                        search_widget.search_line.setCursorPosition(
-                            len(search_widget.search_line.text()))
-                        search_widget.search_line.textChanged.connect(
-                            search_widget.on_text_changed)
-                        search_text = search_widget.search_line.text()
-                        if len(search_text.strip()) >= 2:
-                            search_widget.last_search_text = search_text.strip()
-                            search_widget.search_timer.stop()
-                            search_widget.search_timer.timeout.disconnect()
-                            search_widget.search_timer.timeout.connect(
-                                lambda: search_widget.perform_search(search_widget.last_search_text))
-                            search_widget.search_timer.start(150)
-                QTimer.singleShot(0, reconnect_and_search)
+    def filter_items(self, text):
+        """Filtra a lista de itens com base no texto."""
+        if not text:
+            self.finished.emit([], text)
             return
 
-        if key == Qt.Key.Key_Escape:
-            self.hide()
-            if (self.search_widget and hasattr(self.search_widget, 'search_line')):
-                self.search_widget.search_line.setFocus()
+        filtered_items = [
+            item for item in self.items
+            if text.lower() in item[1].lower()  # item[1] é o nome do item
+        ]
+        self.finished.emit(filtered_items, text)
 
-        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if self.currentItem():
-                if (self.search_widget and hasattr(self.search_widget, 'select_suggestion')):
-                    self.search_widget.select_suggestion(self.currentItem())
+    def set_items(self, items):
+        """Atualiza a lista de itens no worker."""
+        self.items = items
 
-        elif key == Qt.Key.Key_Up:
-            if self.currentRow() <= 0:
-                self.hide()
-                if (self.search_widget and hasattr(self.search_widget, 'search_line')):
-                    self.search_widget.search_line.setFocus()
-            else:
-                super().keyPressEvent(event)
 
-        elif key == Qt.Key.Key_Down:
-            super().keyPressEvent(event)
+class CustomerFilterWorker(QObject):
+    """
+    Worker que executa a filtragem de clientes em uma thread separada.
+    """
+    finished = Signal(
+        list, str)  # Sinal emitido com a lista filtrada e o texto original
 
-        else:
-            super().keyPressEvent(event)
+    def __init__(self, customers):
+        super().__init__()
+        self.customers = customers
+
+    def filter_customers(self, text):
+        """Filtra a lista de clientes com base no texto."""
+        if not text:
+            self.finished.emit([], text)
+            return
+
+        filtered_customers = [
+            c for c in self.customers
+            if text in c[0].lower() or text in c[1]
+        ]
+        self.finished.emit(filtered_customers, text)
+
+    def set_customers(self, customers):
+        """Atualiza a lista de clientes no worker."""
+        self.customers = customers
 
 
 class CustomerSearchWidget(QWidget):
-    """Widget simples para busca de clientes"""
+    """Widget de busca integrado com QLineEdit no topo e QListWidget abaixo."""
     customer_selected = Signal(dict)
+    suggestions_list_shown = Signal()
+    suggestions_list_hidden = Signal()
 
-    # Contador de instâncias para identificação única
-    _instance_counter = 0
+    def suggestions_list_key_press(self, event):
+        # Se pressionar seta para cima no primeiro item, volta o foco para o QLineEdit
+        if (event.key() == Qt.Key_Up and self.suggestions_list.currentRow() == 0):
+            self.customer_lineedit.setFocus()
+            return True
+        return False
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, customers=None):
         super().__init__(parent)
-        # ID único para esta instância
-        CustomerSearchWidget._instance_counter += 1
-        self.instance_id = CustomerSearchWidget._instance_counter
-
-        # Timer para debounce da busca
-        self.search_timer = QTimer()
-        self.search_timer.setSingleShot(True)
-        self.last_search_text = ""
-
+        self.customers = customers if customers is not None else []
+        self.customer_data = {}
         self.setup_ui()
-
-        # Instala event filter global para fechar dropdown ao clicar fora
-        app = QApplication.instance()
-        if app:
-            app.installEventFilter(self)
+        self.setup_worker_thread()
 
     def setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         self.setLayout(layout)
 
-        # Campo de busca
-        self.search_line = QLineEdit()
-        self.search_line.setPlaceholderText(
-            "Digite o nome ou telefone do cliente..."
-        )
-        self.search_line.textChanged.connect(self.on_text_changed)
-        layout.addWidget(self.search_line)
+        # Label acima do campo de busca
+        self.customer_label = QLabel("Cliente:")
+        label_font = QFont()
+        label_font.setBold(True)
+        self.customer_label.setFont(label_font)
+        self.customer_label.setStyleSheet("margin-bottom: 6px;")
+        # Aplica o estilo centralizado do QLabel)
+        layout.addWidget(self.customer_label)
 
-        # Botão para abrir o dropdown manualmente (para teste)
-        self.test_dropdown_btn = QPushButton("Abrir Dropdown (teste)")
-        self.test_dropdown_btn.clicked.connect(self.show_test_dropdown)
-        layout.addWidget(self.test_dropdown_btn)
+        # Campo de busca no topo
+        self.customer_lineedit = QLineEdit()
+        self.customer_lineedit.setPlaceholderText(
+            "Digite para buscar cliente...")
+        self.lineedit_base_style = CUSTOMER_LINEEDIT_BASE_STYLE
+        self.lineedit_no_border_style = CUSTOMER_LINEEDIT_NO_BORDER_STYLE
+        self.suggestions_list_base_style = SUGGESTIONS_LIST_BASE_STYLE
+        self.customer_lineedit.setStyleSheet(self.lineedit_base_style)
+        layout.addWidget(self.customer_lineedit)
 
-        # Dropdown simples
-        self.dropdown = SimpleDropdown(self)
-        # Estilo leve, tipo tooltip, mas com interação
-        self.dropdown.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.Popup |
-            Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.dropdown.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.dropdown.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.dropdown.setMaximumHeight(200)
-        self.dropdown.hide()
-        self.dropdown.itemClicked.connect(self.select_suggestion)
-        self.dropdown.installEventFilter(self)
-        self.dropdown.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #ccc;
-                background-color: white;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #eee;
-            }
-            QListWidget::item:hover {
-                background-color: #e3f2fd;
-            }
-            QListWidget::item:selected {
-                background-color: #2196f3;
-                color: white;
-            }
-        """)
+        # Lista de sugestões abaixo
+        self.suggestions_list = QListWidget()
+        self.suggestions_list.setMaximumHeight(200)
+        self.suggestions_list.setMinimumHeight(0)
+        self.suggestions_list.hide()  # Inicialmente oculto
+        self.suggestions_list.setStyleSheet(self.suggestions_list_base_style)
+        layout.addWidget(self.suggestions_list)
 
-        # Event filter simples
-        self.search_line.installEventFilter(self)
+        # Não cria o item especial aqui, será criado dinamicamente
 
-    def eventFilter(self, obj, event):
-        # Captura cliques globais para fechar dropdown
-        if event.type() == QEvent.Type.MouseButtonPress:
-            if self.dropdown.isVisible():
-                # Verifica se o clique foi fora do dropdown e do campo de busca
-                widget = QApplication.widgetAt(event.globalPos())
-                # Se clicou fora do dropdown, campo de busca ou botão de teste
-                if widget not in (self.dropdown, self.search_line,
-                                  self.test_dropdown_btn):
-                    # Verifica se não é um item do dropdown
-                    if not (widget and widget.parent() == self.dropdown):
-                        self.dropdown.hide()
+        # Permite navegação reversa: seta para cima volta para o QLineEdit
+        self.suggestions_list.installEventFilter(self)
 
-        # Navegação por teclado no campo de busca
-        if obj == self.search_line and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key == Qt.Key.Key_Down and self.dropdown.isVisible():
-                self.dropdown.setFocus()
-                self.dropdown.setCurrentRow(0)
-                return True
-        return super().eventFilter(obj, event)
+        # Conecta eventos
+        self.customer_lineedit.textChanged.connect(self.on_text_changed)
+        self.suggestions_list.itemClicked.connect(self.on_item_selected)
+        self.suggestions_list.itemActivated.connect(self.on_item_selected)
+
+        # Permite navegação com teclado
+        self.customer_lineedit.installEventFilter(self)
+
+    def setup_worker_thread(self):
+        """Configura e inicia a thread para a filtragem."""
+        self.thread = QThread()
+        self.worker = CustomerFilterWorker(self.customers)
+        self.worker.moveToThread(self.thread)
+
+        # Conecta os sinais e slots entre as threads
+        self.worker.finished.connect(self.on_filtering_finished)
+
+        # Limpeza da thread
+        self.thread.finished.connect(self.worker.deleteLater)
+        self.thread.start()
 
     def on_text_changed(self, text):
-        """Busca simples quando texto muda"""
-        # Para evitar loop infinito, cancela busca anterior
-        self.search_timer.stop()
-
-        if len(text.strip()) >= 2:
-            # Agenda busca com delay
-            self.last_search_text = text.strip()
-            self.search_timer.timeout.disconnect()
-            self.search_timer.timeout.connect(
-                lambda: self.perform_search(self.last_search_text))
-            self.search_timer.start(100)  # 100ms delay
+        """Chamado quando o texto do campo de busca muda."""
+        if text.strip():
+            # Envia para o worker filtrar
+            self.worker.filter_customers(text)
         else:
-            self.dropdown.hide()
+            # Se não há texto, esconde a lista
+            self.hide_suggestions()
 
-    def perform_search(self, search_text):
-        """Busca síncrona simples"""
-        try:
-            customers = search_customers(search_text)
-            self.show_suggestions(customers[:10])  # Máximo 10
-        except Exception as e:
-            LOGGER.error(f"[Widget #{self.instance_id}] Erro na busca: {e}")
-            self.dropdown.hide()
-
-    def show_suggestions(self, customers):
-        """Mostra sugestões no dropdown"""
-        self.dropdown.clear()
-
-        if not customers:
-            self.dropdown.hide()
+    def on_filtering_finished(self, filtered_customers, original_text):
+        """Slot para receber os resultados da thread e atualizar a UI."""
+        # Garante que estamos atualizando a UI com a busca mais recente
+        if original_text != self.customer_lineedit.text():
             return
 
-        for customer in customers:
-            # customer: (id, name, phone, street, number, neighborhood_id,
-            #            reference, neighborhood_name)
-            text = f"{customer[1]} - {customer[2]}"
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, customer)
-            self.dropdown.addItem(item)
+        self.customer_data.clear()
+        self.suggestions_list.clear()
 
-        # Posiciona e mostra
-        rect = self.search_line.rect()
-        pos = self.search_line.mapToGlobal(rect.bottomLeft())
-        dropdown_height = min(200, len(customers) * 30 + 10)
-        self.dropdown.move(pos)
-        self.dropdown.resize(self.search_line.width(), dropdown_height)
+        if not filtered_customers:
+            # Nenhum cliente encontrado, mostra apenas o item de adicionar
+            add_customer_item = QListWidgetItem("+ Adicionar novo cliente")
+            add_customer_item.setData(
+                Qt.ItemDataRole.UserRole, {"is_add_new": True})
+            self.suggestions_list.addItem(add_customer_item)
+            self.show_suggestions()
+            return
 
-        self.dropdown.show()
+        # Adiciona os itens filtrados na lista
+        for nome, tel in filtered_customers:
+            suggestion_text = f"{nome} - {tel}"
+            self.customer_data[suggestion_text] = {"name": nome, "phone": tel}
+            self.suggestions_list.addItem(suggestion_text)
 
-        # 🧠 Reforça o foco de volta no campo de busca após o dropdown abrir
-        QTimer.singleShot(0, self.search_line.setFocus)
+        self.show_suggestions()
 
-    def select_suggestion(self, item):
-        """Seleciona uma sugestão"""
-        customer_data = item.data(Qt.ItemDataRole.UserRole)
-        if customer_data:
-            # Preenche campo
-            text = f"{customer_data[1]} - {customer_data[2]}"
-            self.search_line.setText(text)
+    def show_suggestions(self):
+        """Mostra a lista de sugestões com altura fixa."""
+        if self.suggestions_list.count() > 0:
+            self.suggestions_list.show()
+            # Adiciona o item especial ao final (cria novo a cada vez)
+            if self.suggestions_list.findItems("+ Adicionar novo cliente", Qt.MatchExactly) == []:
+                add_customer_item = QListWidgetItem("+ Adicionar novo cliente")
+                add_customer_item.setData(
+                    Qt.ItemDataRole.UserRole, {"is_add_new": True})
+                self.suggestions_list.addItem(add_customer_item)
+            # Altura fixa para evitar movimento da barra
+            fixed_height = 200  # Altura fixa para 5 itens
+            self.suggestions_list.setMaximumHeight(fixed_height)
+            self.suggestions_list.setMinimumHeight(fixed_height)
+            # Remove o border-bottom colorido da QLineEdit
+            self.customer_lineedit.setStyleSheet(self.lineedit_no_border_style)
+            # Emite sinal de que as sugestões foram mostradas
+            self.suggestions_list_shown.emit()
+        else:
+            self.hide_suggestions()
 
-            # Esconde dropdown
-            self.dropdown.hide()
+    def hide_suggestions(self):
+        """Esconde a lista de sugestões e restaura a borda inferior do QLineEdit."""
+        self.suggestions_list.hide()
+        # Remove o item especial se presente
+        items = self.suggestions_list.findItems(
+            "+ Adicionar novo cliente", Qt.MatchExactly)
+        for item in items:
+            self.suggestions_list.takeItem(self.suggestions_list.row(item))
+        self.suggestions_list.setMaximumHeight(0)
+        self.suggestions_list.setMinimumHeight(0)
+        # Restaura a borda inferior colorida da QLineEdit
+        self.customer_lineedit.setStyleSheet(self.lineedit_base_style)
+        self.suggestions_list.setStyleSheet(self.suggestions_list_base_style)
+        # Emite sinal de que as sugestões foram escondidas
+        self.suggestions_list_hidden.emit()
 
-            # Emite dados do cliente
-            self.customer_selected.emit({
-                'id': customer_data[0],
-                'name': customer_data[1],
-                'phone': customer_data[2],
-                'street': customer_data[3],
-                'number': customer_data[4],
-                'neighborhood_id': customer_data[5],
-                'reference': customer_data[6],
-                'neighborhood_name': customer_data[7]
-            })
+    def on_item_selected(self, item):
+        """Chamado quando um item da lista é selecionado."""
+        if item:
+            suggestion_text = item.text()
+            if suggestion_text in self.customer_data:
+                selected_data = self.customer_data[suggestion_text]
+                self.customer_selected.emit(selected_data)
+
+                # Atualiza o campo de texto com o nome do cliente
+                customer_name = selected_data["name"]
+                self.customer_lineedit.setText(customer_name)
+
+                # Esconde as sugestões
+                self.hide_suggestions()
+
+    def eventFilter(self, source, event):
+        """Filtro de eventos para navegação com teclado."""
+        if source == self.customer_lineedit and event.type() == event.Type.KeyPress:
+            key_down = (event.key() ==
+                        Qt.Key_Down and self.suggestions_list.isVisible())
+            if key_down:
+                # Move foco para a lista
+                self.suggestions_list.setFocus()
+                if self.suggestions_list.count() > 0:
+                    self.suggestions_list.setCurrentRow(0)
+                return True
+            elif event.key() == Qt.Key_Enter or event.key() == Qt.Key_Return:
+                # Se há item selecionado na lista, usa ele
+                has_selected = (self.suggestions_list.isVisible()
+                                and self.suggestions_list.currentItem())
+                if has_selected:
+                    self.on_item_selected(self.suggestions_list.currentItem())
+                    return True
+            elif event.key() == Qt.Key_Escape:
+                # Esconde as sugestões
+                self.hide_suggestions()
+                return True
+        elif source == self.suggestions_list and event.type() == event.Type.KeyPress:
+            # ESC: volta para o QLineEdit e fecha sugestões
+            if event.key() == Qt.Key_Escape:
+                self.hide_suggestions()
+                self.customer_lineedit.setFocus()
+                return True
+            if self.suggestions_list_key_press(event):
+                return True
+        return super().eventFilter(source, event)
+
+    def set_customers(self, customers):
+        """Atualiza a lista de clientes, inclusive no worker da thread."""
+        self.customers = customers
+        self.worker.set_customers(customers)
+        self.clear_selection()
 
     def clear_selection(self):
-        """Limpa seleção"""
-        self.search_line.clear()
-        self.dropdown.hide()
+        """Limpa o campo de busca e o estado do widget."""
+        self.customer_lineedit.clear()
+        self.hide_suggestions()
+        self.customer_data.clear()
 
-    def show_test_dropdown(self):
-        """Abre o dropdown com sugestões reais usando o texto atual do QLineEdit"""
-        search_text = self.search_line.text().strip()
-        if len(search_text) >= 2:
-            self.perform_search(search_text)
+    def closeEvent(self, event):
+        """Garante que a thread seja finalizada corretamente."""
+        LOGGER.info("Fechando a thread do worker de busca de clientes.")
+        self.thread.quit()
+        self.thread.wait()
+        super().closeEvent(event)
+
+
+class ItemSearchWidget(QWidget):
+    """Widget de busca integrado para itens com QLineEdit no topo e QListWidget abaixo."""
+    item_selected = Signal(tuple)
+    suggestions_list_shown = Signal()
+    suggestions_list_hidden = Signal()
+
+    def suggestions_list_key_press(self, event):
+        # Se pressionar seta para cima no primeiro item, volta o foco para o QLineEdit
+        if (event.key() == Qt.Key_Up and self.suggestions_list.currentRow() == 0):
+            self.item_lineedit.setFocus()
+            return True
+        return False
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.items = []
+        self.item_data = {}
+        self.setup_ui()
+        self.setup_worker_thread()
+        self.load_items()
+
+    def setup_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.setLayout(layout)
+
+        # Label acima do campo de busca
+        self.item_label = QLabel("Item:")
+        label_font = QFont()
+        label_font.setBold(True)
+        self.item_label.setFont(label_font)
+        self.item_label.setStyleSheet("margin-bottom: 6px;")
+        layout.addWidget(self.item_label)
+
+        # Campo de busca no topo
+        self.item_lineedit = QLineEdit()
+        self.item_lineedit.setPlaceholderText("Digite para buscar item...")
+        self.lineedit_base_style = CUSTOMER_LINEEDIT_BASE_STYLE
+        self.lineedit_no_border_style = CUSTOMER_LINEEDIT_NO_BORDER_STYLE
+        self.suggestions_list_base_style = SUGGESTIONS_LIST_BASE_STYLE
+        self.item_lineedit.setStyleSheet(self.lineedit_base_style)
+        layout.addWidget(self.item_lineedit)
+
+        # Lista de sugestões abaixo
+        self.suggestions_list = QListWidget()
+        self.suggestions_list.setMaximumHeight(200)
+        self.suggestions_list.setMinimumHeight(0)
+        self.suggestions_list.hide()  # Inicialmente oculto
+        self.suggestions_list.setStyleSheet(self.suggestions_list_base_style)
+        layout.addWidget(self.suggestions_list)
+
+        # Permite navegação reversa: seta para cima volta para o QLineEdit
+        self.suggestions_list.installEventFilter(self)
+
+        # Conecta eventos
+        self.item_lineedit.textChanged.connect(self.on_text_changed)
+        self.suggestions_list.itemClicked.connect(self.on_item_selected)
+        self.suggestions_list.itemActivated.connect(self.on_item_selected)
+
+        # Permite navegação com teclado
+        self.item_lineedit.installEventFilter(self)
+
+    def setup_worker_thread(self):
+        """Configura e inicia a thread para a filtragem."""
+        self.thread = QThread()
+        self.worker = ItemFilterWorker(self.items)
+        self.worker.moveToThread(self.thread)
+
+        # Conecta os sinais e slots entre as threads
+        self.worker.finished.connect(self.on_filtering_finished)
+
+        # Limpeza da thread
+        self.thread.finished.connect(self.worker.deleteLater)
+        self.thread.start()
+
+    def load_items(self):
+        """Carrega itens do menu do banco de dados"""
+        try:
+            self.items = search_menu_items("")  # Carrega todos os itens
+            self.worker.set_items(self.items)
+        except Exception as e:
+            LOGGER.error(f"Erro ao carregar itens do menu: {e}")
+            self.items = []
+
+    def on_text_changed(self, text):
+        """Chamado quando o texto do campo de busca muda."""
+        if text.strip():
+            # Envia para o worker filtrar
+            self.worker.filter_items(text)
         else:
-            self.dropdown.hide()
+            # Se não há texto, esconde a lista
+            self.hide_suggestions()
 
-        # Força o foco de volta no campo de busca após abrir o dropdown
-        QTimer.singleShot(0, self.search_line.setFocus)
+    def on_filtering_finished(self, filtered_items, original_text):
+        """Slot para receber os resultados da thread e atualizar a UI."""
+        # Garante que estamos atualizando a UI com a busca mais recente
+        if original_text != self.item_lineedit.text():
+            return
+
+        self.item_data.clear()
+        self.suggestions_list.clear()
+
+        if not filtered_items:
+            # Nenhum item encontrado, não mostra sugestões
+            self.hide_suggestions()
+            return
+
+        # Adiciona os itens filtrados na lista
+        for item in filtered_items:
+            # item: (id, name, price, category_id, category_name, description)
+            suggestion_text = f"{item[1]} - R$ {item[2]:.2f}"
+            self.item_data[suggestion_text] = item
+            self.suggestions_list.addItem(suggestion_text)
+
+        self.show_suggestions()
+
+    def show_suggestions(self):
+        """Mostra a lista de sugestões com altura fixa."""
+        if self.suggestions_list.count() > 0:
+            self.suggestions_list.show()
+            # Altura fixa para evitar movimento da barra
+            fixed_height = 200  # Altura fixa para 5 itens
+            self.suggestions_list.setMaximumHeight(fixed_height)
+            self.suggestions_list.setMinimumHeight(fixed_height)
+            # Remove o border-bottom colorido da QLineEdit
+            self.item_lineedit.setStyleSheet(self.lineedit_no_border_style)
+            # Emite sinal de que as sugestões foram mostradas
+            self.suggestions_list_shown.emit()
+        else:
+            self.hide_suggestions()
+
+    def hide_suggestions(self):
+        """Esconde a lista de sugestões e restaura a borda inferior do QLineEdit."""
+        self.suggestions_list.hide()
+        self.suggestions_list.setMaximumHeight(0)
+        self.suggestions_list.setMinimumHeight(0)
+        # Restaura a borda inferior colorida da QLineEdit
+        self.item_lineedit.setStyleSheet(self.lineedit_base_style)
+        self.suggestions_list.setStyleSheet(self.suggestions_list_base_style)
+        # Emite sinal de que as sugestões foram escondidas
+        self.suggestions_list_hidden.emit()
+
+    def on_item_selected(self, item):
+        """Chamado quando um item da lista é selecionado."""
+        if item:
+            suggestion_text = item.text()
+            if suggestion_text in self.item_data:
+                selected_data = self.item_data[suggestion_text]
+                self.item_selected.emit(selected_data)
+
+                # Atualiza o campo de texto com o nome do item
+                item_name = selected_data[1]
+                self.item_lineedit.setText(item_name)
+
+                # Esconde as sugestões
+                self.hide_suggestions()
+
+    def eventFilter(self, source, event):
+        """Filtro de eventos para navegação com teclado."""
+        if source == self.item_lineedit and event.type() == event.Type.KeyPress:
+            key_down = (event.key() ==
+                        Qt.Key_Down and self.suggestions_list.isVisible())
+            if key_down:
+                # Move foco para a lista
+                self.suggestions_list.setFocus()
+                if self.suggestions_list.count() > 0:
+                    self.suggestions_list.setCurrentRow(0)
+                return True
+            elif event.key() == Qt.Key_Enter or event.key() == Qt.Key_Return:
+                # Se há item selecionado na lista, usa ele
+                has_selected = (self.suggestions_list.isVisible()
+                                and self.suggestions_list.currentItem())
+                if has_selected:
+                    self.on_item_selected(self.suggestions_list.currentItem())
+                    return True
+            elif event.key() == Qt.Key_Escape:
+                # Esconde as sugestões
+                self.hide_suggestions()
+                return True
+        elif source == self.suggestions_list and event.type() == event.Type.KeyPress:
+            # ESC: volta para o QLineEdit e fecha sugestões
+            if event.key() == Qt.Key_Escape:
+                self.hide_suggestions()
+                self.item_lineedit.setFocus()
+                return True
+            if self.suggestions_list_key_press(event):
+                return True
+        return super().eventFilter(source, event)
+
+    def clear_selection(self):
+        """Limpa o campo de busca e o estado do widget."""
+        self.item_lineedit.clear()
+        self.hide_suggestions()
+        self.item_data.clear()
+
+    def closeEvent(self, event):
+        """Garante que a thread seja finalizada corretamente."""
+        LOGGER.info("Fechando a thread do worker de busca de itens.")
+        self.thread.quit()
+        self.thread.wait()
+        super().closeEvent(event)
 
 
 class OrderScreen(QWidget):
+    def hide_left_column_widgets(self):
+        """Esconde todos os widgets da primeira coluna exceto o campo de busca"""
+        for widget in self.left_column_widgets:
+            widget.hide()
+
+    def show_left_column_widgets(self):
+        """Mostra todos os widgets da primeira coluna"""
+        for widget in self.left_column_widgets:
+            widget.show()
     """Tela de pedidos simplificada"""
 
-    def __init__(self, screen_title, parent=None):
+    def __init__(self, screen_title, parent=None, customers=None):
         super().__init__(parent)
         self.screen_title = screen_title
         self.selected_customer = None
         self.order_items = []
-
-        # Timer simples para busca de itens
-        self.item_search_timer = QTimer()
-        self.item_search_timer.setSingleShot(True)
-        self.item_search_timer.timeout.connect(self.perform_item_search)
+        self.customers = customers if customers is not None else []
+        LOGGER.info(
+            f"Carregando {len(self.customers)} clientes na tela de pedidos")
 
         self.setup_ui()
 
@@ -293,48 +525,36 @@ class OrderScreen(QWidget):
         # Primeira coluna: campo de busca no topo
         left_col = QVBoxLayout()
         main_layout.addLayout(left_col, 1)
-        self.customer_search = CustomerSearchWidget()
+        self.customer_search = CustomerSearchWidget(customers=self.customers)
         self.customer_search.customer_selected.connect(
             self.on_customer_selected
         )
+        # Conecta os sinais para esconder/mostrar widgets da primeira coluna
+        self.customer_search.suggestions_list_shown.connect(
+            self.hide_left_column_widgets
+        )
+        self.customer_search.suggestions_list_hidden.connect(
+            self.show_left_column_widgets
+        )
         left_col.addWidget(self.customer_search)
 
-        # Campo de busca de itens
-        item_label = QLabel("Item:")
-        item_font = QFont()
-        item_font.setBold(True)
-        item_label.setFont(item_font)
-        left_col.addWidget(item_label)
-
-        self.item_search = QLineEdit()
-        self.item_search.setPlaceholderText("Digite o nome do item...")
-        self.item_search.textChanged.connect(self.on_item_search_changed)
+        # Campo de busca de itens (igual ao de clientes)
+        self.item_search = ItemSearchWidget()
+        self.item_search.item_selected.connect(self.on_item_selected)
+        # Conecta os sinais para esconder/mostrar widgets quando as sugestões de item aparecem
+        self.item_search.suggestions_list_shown.connect(
+            self.hide_left_column_widgets
+        )
+        self.item_search.suggestions_list_hidden.connect(
+            self.show_left_column_widgets
+        )
         left_col.addWidget(self.item_search)
 
-        # Lista de sugestões de itens (dropdown sobreposto)
-        self.item_suggestions = QListWidget(self)
-        self.item_suggestions.setWindowFlags(Qt.WindowType.Popup)
-        self.item_suggestions.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #ccc;
-                background-color: white;
-                alternate-background-color: #f5f5f5;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #eee;
-            }
-            QListWidget::item:hover {
-                background-color: #e3f2fd;
-            }
-            QListWidget::item:selected {
-                background-color: #2196f3;
-                color: white;
-            }
-        """)
-        self.item_suggestions.setMaximumHeight(200)
-        self.item_suggestions.hide()
-        self.item_suggestions.itemClicked.connect(self.on_item_selected)
+        # Armazena referências aos widgets que devem ser escondidos
+        self.left_column_widgets = []
+
+        # Desabilita o campo de item até que um cliente seja selecionado
+        self.item_search.item_lineedit.setEnabled(False)
 
         left_col.addStretch()
 
@@ -343,10 +563,19 @@ class OrderScreen(QWidget):
         main_layout.addLayout(right_col, 2)
         self.title_label = QLabel(self.screen_title)
         title_font = QFont()
-        title_font.setPointSize(14)
+        title_font.setPointSize(11)  # Fonte menor
         title_font.setBold(True)
         self.title_label.setFont(title_font)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setStyleSheet("QLabel { padding: 2px 4px; }")
+        self.title_label.setWordWrap(False)
+        self.title_label.setMinimumHeight(24)
+        self.title_label.setMaximumHeight(28)
+        self.title_label.setSizePolicy(self.title_label.sizePolicy(
+        ).horizontalPolicy(), QWidget().sizePolicy().verticalPolicy())
+        self.title_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        # Removido: setElideMode (não existe em QLabel)
         right_col.addWidget(self.title_label)
 
         order_frame = QFrame()
@@ -398,15 +627,38 @@ class OrderScreen(QWidget):
     def on_customer_selected(self, customer_data):
         """Callback quando um cliente é selecionado"""
         self.selected_customer = customer_data
-        customer_name = customer_data['name']
-        self.title_label.setText(customer_name)
-        customer_phone = customer_data['phone']
-        LOGGER.info(f"Cliente selecionado: {customer_name} - {customer_phone}")
+        customer_name = customer_data.get('name', '').strip()
+        customer_phone = customer_data.get('phone', '').strip()
+        if customer_name and customer_phone:
+            title = f"{customer_phone} - {customer_name}"
+        elif customer_phone:
+            title = customer_phone
+        elif customer_name:
+            title = customer_name
+        else:
+            title = self.screen_title
+
+        # Aplica elipse manualmente se necessário
+        metrics = self.title_label.fontMetrics()
+        max_width = self.title_label.width() if self.title_label.width() > 0 else 250
+        elided_title = metrics.elidedText(
+            title, Qt.TextElideMode.ElideRight, max_width)
+        self.title_label.setText(elided_title)
+        LOGGER.info(f"Cliente selecionado: {title}")
+
+        # Habilita o campo de item após seleção de cliente
+        self.item_search.item_lineedit.setEnabled(True)
+
+    def on_item_selected(self, item_data):
+        """Callback quando um item é selecionado"""
+        LOGGER.info(
+            f"Item selecionado: {item_data[1]} - R$ {item_data[2]:.2f}")
+        # Abre o modal para adicionar o item com adicionais
+        self.open_add_item_modal(item_data)
 
     def add_item(self):
         """Adiciona um item à tabela de pedido (exemplo)"""
         if not self.selected_customer:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self, "Aviso", "Selecione um cliente primeiro!"
             )
@@ -436,24 +688,24 @@ class OrderScreen(QWidget):
         self.selected_customer = None
         self.title_label.setText(self.screen_title)
 
+        # Desabilita o campo de item ao limpar o pedido
+        self.item_search.item_lineedit.setEnabled(False)
+
     def finalize_order(self):
         """Finaliza o pedido"""
         if not self.selected_customer:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self, "Aviso", "Selecione um cliente primeiro!"
             )
             return
 
         if self.order_table.rowCount() == 0:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self, "Aviso", "Adicione itens ao pedido!"
             )
             return
 
         # Aqui você pode implementar a lógica para salvar o pedido
-        from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(
             self, "Sucesso",
             f"Pedido finalizado para {self.selected_customer['name']}!\n"
@@ -465,9 +717,6 @@ class OrderScreen(QWidget):
 
     def show_item_details(self, row):
         """Mostra diálogo com detalhes do item (adicionais e observações)"""
-        from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel,
-                                       QPushButton, QTextEdit, QVBoxLayout)
-
         dialog = QDialog(self)
         dialog.setWindowTitle("Detalhes do Item")
         dialog.setModal(True)
@@ -528,8 +777,6 @@ class OrderScreen(QWidget):
 
     def delete_item(self, row, dialog=None):
         """Remove item da tabela"""
-        from PySide6.QtWidgets import QMessageBox
-
         reply = QMessageBox.question(
             self, "Confirmar",
             "Deseja realmente excluir este item?",
@@ -543,8 +790,6 @@ class OrderScreen(QWidget):
 
     def edit_item(self, row, dialog=None):
         """Edita um item do pedido"""
-        from PySide6.QtWidgets import QMessageBox
-
         # Por enquanto, apenas uma mensagem de placeholder
         QMessageBox.information(
             self, "Editar Item",
@@ -554,8 +799,6 @@ class OrderScreen(QWidget):
 
     def show_context_menu(self, position):
         """Mostra menu de contexto ao clicar com botão direito"""
-        from PySide6.QtWidgets import QMenu
-
         item = self.order_table.itemAt(position)
         if item is None:
             return
@@ -577,70 +820,8 @@ class OrderScreen(QWidget):
         # Mostra o menu na posição do cursor
         menu.exec(self.order_table.mapToGlobal(position))
 
-    def on_item_search_changed(self, text):
-        """Busca itens quando o texto mudar"""
-        if len(text) >= 2:
-            self.item_search_timer.start(500)  # Delay de 500ms
-        else:
-            self.item_suggestions.hide()
-
-    def perform_item_search(self):
-        """Executa busca de itens simples"""
-        search_text = self.item_search.text().strip()
-        if len(search_text) < 2:
-            return
-
-        # Busca síncrona simples
-        try:
-            items = search_menu_items(search_text)
-            self.on_items_found(items)
-        except Exception as e:
-            LOGGER.error(f"Erro na busca de itens: {e}")
-            self.item_suggestions.hide()
-
-    def on_items_found(self, items):
-        """Callback quando itens são encontrados"""
-        self.item_suggestions.clear()
-
-        if items:
-            for item in items[:10]:  # Limita a 10 sugestões
-                # item: (id, name, price, category_id, category_name, desc)
-                item_text = f"{item[1]} - R$ {item[2]:.2f} ({item[4]})"
-                suggestion = QListWidgetItem(item_text)
-                suggestion.setData(Qt.ItemDataRole.UserRole, item)
-                self.item_suggestions.addItem(suggestion)
-
-            self.show_item_dropdown()
-        else:
-            self.item_suggestions.hide()
-
-    def show_item_dropdown(self):
-        """Mostra o dropdown de itens posicionado abaixo do campo"""
-        if (self.item_suggestions.count() > 0 and
-                not self.item_search.text().strip() == ""):
-            # Posiciona o dropdown
-            rect = self.item_search.rect()
-            pos = self.item_search.mapToGlobal(rect.bottomLeft())
-            self.item_suggestions.move(pos)
-            self.item_suggestions.resize(self.item_search.width(), 200)
-            self.item_suggestions.show()
-        else:
-            self.item_suggestions.hide()
-
-    def on_item_selected(self, item):
-        """Quando um item é selecionado"""
-        item_data = item.data(Qt.ItemDataRole.UserRole)
-        if item_data:
-            self.item_suggestions.hide()
-            self.item_search.clear()
-            self.open_add_item_modal(item_data)
-
     def open_add_item_modal(self, item_data):
         """Abre modal para adicionar item com adicionais"""
-        from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel,
-                                       QListWidget, QPushButton, QSpinBox,
-                                       QTextEdit, QVBoxLayout)
-
         # item_data: (id, name, price, category_id, category_name, description)
         dialog = QDialog(self)
         dialog.setWindowTitle("Adicionar Item")
@@ -806,7 +987,6 @@ class OrderScreen(QWidget):
     def add_to_order(self, item_data, dialog):
         """Adiciona item ao pedido"""
         if not self.selected_customer:
-            from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self, "Aviso", "Selecione um cliente primeiro!"
             )
@@ -843,7 +1023,6 @@ class OrderScreen(QWidget):
         dialog.accept()
 
         # Mostra confirmação
-        from PySide6.QtWidgets import QMessageBox
         base_price = item_data[2]
         additions_total = sum(add['total']
                               for add in dialog.selected_additions_data)
@@ -857,7 +1036,15 @@ class OrderScreen(QWidget):
         QMessageBox.information(self, "Item Adicionado", msg)
 
     def closeEvent(self, event):
-        """Remove event filter ao fechar o widget"""
+        """Finaliza threads e remove event filter ao fechar o widget"""
+        # Finaliza a thread do customer_search primeiro
+        if hasattr(self, 'customer_search') and self.customer_search:
+            self.customer_search.closeEvent(event)
+
+        # Finaliza a thread do item_search
+        if hasattr(self, 'item_search') and self.item_search:
+            self.item_search.closeEvent(event)
+
         app = QApplication.instance()
         if app:
             app.removeEventFilter(self)

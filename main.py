@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
                                QMainWindow, QMenu, QMenuBar, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
 
-from database.db import init_db
+from database.db import get_customers, init_db
 from ui.customer_management import CustomerManagementWindow
 from ui.menu_edit import MenuEditWindow
 from ui.menu_registration import MenuRegistrationWindow
@@ -16,13 +16,20 @@ from ui.neighborhood_management import NeighborhoodManagementWindow
 from ui.order_screen import OrderScreen
 from utils.log_utils import get_logger
 from utils.printer import Printer
-from utils.utils import style
+from utils.utils import STYLE
 
 # Adiciona o diretório do projeto ao PYTHONPATH
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-
 LOGGER = get_logger(__name__)
+
+# Lista global de todos os clientes (nome, telefone)
+ALL_CUSTOMERS = []
+
+# Busca todos os clientes e salva apenas nome e telefone
+ALL_CUSTOMERS = [(c[1], c[2]) for c in get_customers()]
+LOGGER.info(f'{len(ALL_CUSTOMERS)} clientes carregados em ALL_CUSTOMERS')
+
 
 DEFAULT_PRINTER = None
 
@@ -121,10 +128,10 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(layout)
 
         # Criar 4 telas de pedido independentes
-        self.screen1 = OrderScreen("Pedido 1")
-        self.screen2 = OrderScreen("Pedido 2")
-        self.screen3 = OrderScreen("Pedido 3")
-        self.screen4 = OrderScreen("Pedido 4")
+        self.screen1 = OrderScreen("Pedido 1", customers=ALL_CUSTOMERS)
+        self.screen2 = OrderScreen("Pedido 2", customers=ALL_CUSTOMERS)
+        self.screen3 = OrderScreen("Pedido 3", customers=ALL_CUSTOMERS)
+        self.screen4 = OrderScreen("Pedido 4", customers=ALL_CUSTOMERS)
 
         layout.addWidget(self.screen1, 0, 0)
         layout.addWidget(self.screen2, 0, 1)
@@ -164,7 +171,20 @@ class MainWindow(QMainWindow):
     def open_customer_management(self):
         LOGGER.info('Abrindo gerenciamento de clientes')
         self.customer_management_window = CustomerManagementWindow(self)
+        self.customer_management_window.finished.connect(
+            self.refresh_customers)
         self.customer_management_window.show()
+
+    def refresh_customers(self):
+        """Atualiza a lista global de clientes e widgets de busca após cadastro/edição."""
+        global ALL_CUSTOMERS
+        ALL_CUSTOMERS = [(c[1], c[2]) for c in get_customers()]
+        LOGGER.info(
+            f'{len(ALL_CUSTOMERS)} clientes recarregados em ALL_CUSTOMERS')
+        # Atualiza todos os widgets de busca de clientes
+        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+            if hasattr(screen, 'customer_search'):
+                screen.customer_search.set_customers(ALL_CUSTOMERS)
 
     def open_neighborhood_management(self):
         LOGGER.info('Abrindo gerenciamento de bairros')
@@ -176,18 +196,10 @@ class MainWindow(QMainWindow):
         """Finaliza todas as threads antes de fechar a aplicação"""
         LOGGER.info('Finalizando aplicação e threads...')
 
-        # Finaliza threads das telas de pedido
+        # Finaliza threads das telas de pedido chamando seus closeEvent
         for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
-            if hasattr(screen, 'item_search_thread'):
-                screen.item_search_thread.quit()
-                screen.item_search_thread.wait()
-
-            # Finaliza thread do widget de busca de clientes
-            if hasattr(screen, 'customer_search'):
-                customer_search = screen.customer_search
-                if hasattr(customer_search, 'search_thread'):
-                    customer_search.search_thread.quit()
-                    customer_search.search_thread.wait()
+            if hasattr(screen, 'closeEvent'):
+                screen.closeEvent(event)
 
         LOGGER.info('Todas as threads finalizadas')
         super().closeEvent(event)
@@ -202,7 +214,7 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    app.setStyleSheet(style)
+    app.setStyleSheet(STYLE)
     window = MainWindow()
     window.showMaximized()
     LOGGER.info('Janela principal exibida')
