@@ -57,19 +57,43 @@ class AddItemDialog(QDialog):
         self.setup_buttons(layout)
 
     def setup_header(self, layout):
-        """Configura o header com nome e categoria do item."""
+        """Configura o header com nome, categoria (abaixo), quantidade e complementos obrigatórios."""
         header_layout = QHBoxLayout()
 
+        # Label do nome do item
         item_name_label = QLabel(f"Item: {self.item_data[1]}")
         item_name_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         header_layout.addWidget(item_name_label)
 
-        category_label = QLabel(f"Categoria: {self.item_data[4]}")
-        category_label.setStyleSheet("color: #666; font-size: 12px;")
-        header_layout.addWidget(category_label)
+        # Campo de quantidade do item
+        qty_item_label = QLabel("Qtd:")
+        qty_item_label.setStyleSheet(
+            "margin-left: 12px; margin-right: 2px; font-weight: bold; font-size: 16px;")
+        header_layout.addWidget(qty_item_label)
+
+        self.item_qty = QSpinBox()
+        self.item_qty.setMinimum(1)
+        self.item_qty.setMaximum(99)
+        self.item_qty.setValue(1)
+        self.item_qty.setFixedWidth(50)
+        header_layout.addWidget(self.item_qty)
+
+        # Complementos obrigatórios (QListWidget com checkbox)
+        self.mandatory_additions_list = QListWidget()
+        self.mandatory_additions_list.setMaximumHeight(60)
+        self.mandatory_additions_list.setMaximumWidth(180)
+        self.mandatory_additions_list.setStyleSheet(
+            "font-size: 12px; margin-left: 12px;")
+        header_layout.addWidget(self.mandatory_additions_list)
 
         header_layout.addStretch()
         layout.addLayout(header_layout)
+
+        # Label da categoria embaixo do nome do item
+        category_label = QLabel(f"Categoria: {self.item_data[4]}")
+        category_label.setStyleSheet(
+            "color: #666; font-size: 12px; margin-top: 2px;")
+        layout.addWidget(category_label)
 
     def setup_additions_section(self, layout):
         """Configura a seção de complementos."""
@@ -153,11 +177,20 @@ class AddItemDialog(QDialog):
             self.additions_combo.clear()
             self.additions_combo.addItem("Selecione um complemento...")
 
+            self.mandatory_additions_list.clear()
             for addition in additions:
                 # addition: (id, name, price, is_mandatory)
                 mandatory_text = " (OBRIGATÓRIO)" if addition[3] else ""
                 text = f"{addition[1]} - R$ {addition[2]:.2f}{mandatory_text}"
                 self.additions_combo.addItem(text, addition)
+
+                if addition[3]:
+                    # Adiciona complemento obrigatório na lista com checkbox
+                    item = QListWidgetItem(f"{addition[1]}")
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                    item.setCheckState(Qt.Unchecked)
+                    item.setData(Qt.UserRole, addition)
+                    self.mandatory_additions_list.addItem(item)
 
         except Exception as e:
             LOGGER.error(f"Erro ao carregar complementos: {e}")
@@ -214,14 +247,15 @@ class AddItemDialog(QDialog):
             'item_data': self.item_data,
             'additions': self.selected_additions_data.copy(),
             'observations': self.observations.toPlainText().strip(),
-            'total': self.calculate_total()
+            'total': self.calculate_total(),
+            'qty': self.item_qty.value()
         }
 
         # Emite sinal com os dados
         self.item_added.emit(item_complete)
 
         # Mostra confirmação
-        self.show_confirmation()
+        self.show_confirmation(item_complete['qty'])
 
         # Fecha o diálogo
         self.accept()
@@ -233,7 +267,7 @@ class AddItemDialog(QDialog):
                               for add in self.selected_additions_data)
         return base_price + additions_total
 
-    def show_confirmation(self):
+    def show_confirmation(self, qty=1):
         """Mostra mensagem de confirmação."""
         additions_text = ""
         if self.selected_additions_data:
@@ -241,7 +275,7 @@ class AddItemDialog(QDialog):
                               for a in self.selected_additions_data]
             additions_text = ", ".join(additions_list)
 
-        msg = f"Item adicionado: {self.item_data[1]}\n"
+        msg = f"Item adicionado: {qty}x {self.item_data[1]}\n"
         if additions_text:
             msg += f"Complementos: {additions_text}\n"
         msg += f"Total: R$ {self.calculate_total():.2f}"

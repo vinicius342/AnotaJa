@@ -385,11 +385,6 @@ class ItemSearchWidget(QWidget):
             if suggestion_text in self.item_data:
                 selected_data = self.item_data[suggestion_text]
                 self.item_selected.emit(selected_data)
-
-                # Atualiza o campo de texto com o nome do item
-                item_name = selected_data[1]
-                self.item_lineedit.setText(item_name)
-
                 # Esconde as sugestões
                 self.hide_suggestions()
 

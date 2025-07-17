@@ -219,10 +219,13 @@ class OrderScreen(QWidget):
         self.open_add_item_modal(item_data)
 
     def open_add_item_modal(self, item_data):
-        """Abre modal para adicionar item com complementos."""
+        """Abre modal para adicionar item com complementos e limpa campo ao fechar/cancelar/adicionar."""
         dialog = AddItemDialog(item_data, self)
         dialog.item_added.connect(self.add_item_to_order)
         dialog.exec()
+        # Limpa o campo de busca de item e o estado do widget sempre após fechar o diálogo
+        if hasattr(self, 'item_search') and self.item_search:
+            self.item_search.clear_selection()
 
     def add_item_to_order(self, item_complete):
         """Adiciona item completo ao pedido."""

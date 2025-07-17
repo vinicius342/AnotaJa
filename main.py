@@ -23,9 +23,10 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 LOGGER = get_logger(__name__)
 
+# Inicializa o banco de dados e cria as tabelas se necessário
+init_db()
 # Lista global de todos os clientes (nome, telefone)
 ALL_CUSTOMERS = []
-
 # Busca todos os clientes e salva apenas nome e telefone
 ALL_CUSTOMERS = [(c[1], c[2]) for c in get_customers()]
 LOGGER.info(f'{len(ALL_CUSTOMERS)} clientes carregados em ALL_CUSTOMERS')
@@ -217,10 +218,6 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
     LOGGER.info('Aplicação iniciada')
-
-    # Inicializa o banco de dados
-    init_db()
-    LOGGER.info('Banco de dados inicializado')
 
     app = QApplication(sys.argv)
 

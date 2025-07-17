@@ -15,7 +15,8 @@ from database.db import (add_addition, add_category, add_menu_item,
                          update_addition, update_category)
 from utils.log_utils import get_logger
 
-from .dialogs import CategoryAdditionsDialog, MenuEditDialogItem
+from .dialogs import (CategoryAdditionsDialog, EditCategoryDialog,
+                      MenuEditDialogItem)
 from .dialogs_edit_addition import EditAdditionDialog
 
 logger = get_logger(__name__)
@@ -298,7 +299,6 @@ class MenuEditWindow(QDialog):
 
     def edit_category(self, idx):
         old_name = self.categories[idx]
-        from dialogs import EditCategoryDialog
         dialog = EditCategoryDialog(old_name)
         dialog.setWindowFlags(Qt.Window)
         if dialog.exec():

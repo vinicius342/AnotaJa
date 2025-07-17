@@ -7,10 +7,9 @@ from PySide6.QtWidgets import (QDialog, QDoubleSpinBox, QHBoxLayout, QLabel,
                                QMessageBox, QPushButton, QScrollArea,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from database.db import (add_addition, add_category, add_menu_item,
-                         get_all_additions_with_id, get_categories,
-                         get_category_additions, get_menu_items, init_db,
-                         set_category_additions)
+from database.db import (add_addition, add_category, get_all_additions_with_id,
+                         get_categories, get_category_additions,
+                         get_menu_items, init_db, set_category_additions)
 from ui.dialogs import CategoryAdditionsDialog
 from utils.log_utils import get_logger
 
@@ -104,25 +103,25 @@ class MenuRegistrationWindow(QDialog):
 
         # Formulário de cadastro de item
         form_layout = QVBoxLayout()
-        # ...existing code...
-        # Campo nome do item
+
+        # Campo nome e preço do item lado a lado
+        name_price_layout = QHBoxLayout()
         name_label = QLabel("Nome do Item:")
         name_label.setStyleSheet("font-weight: bold;")
-        form_layout.addWidget(name_label)
+        name_price_layout.addWidget(name_label)
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Nome do item")
-        form_layout.addWidget(self.name_input)
-        # ...existing code...
-        # Campo preço
+        name_price_layout.addWidget(self.name_input)
         price_label = QLabel("Preço:")
         price_label.setStyleSheet("font-weight: bold;")
-        form_layout.addWidget(price_label)
+        name_price_layout.addWidget(price_label)
         self.price_input = QDoubleSpinBox()
         self.price_input.setPrefix("R$ ")
         self.price_input.setMaximum(9999)
         self.price_input.setDecimals(2)
-        form_layout.addWidget(self.price_input)
-        # ...existing code...
+        name_price_layout.addWidget(self.price_input)
+        form_layout.addLayout(name_price_layout)
+
         # Campo categoria
         category_label = QLabel("Categoria:")
         category_label.setStyleSheet("font-weight: bold;")
@@ -242,6 +241,90 @@ class MenuRegistrationWindow(QDialog):
 
         self.tab_items.setLayout(layout)
 
+        # Navegação por teclado - Items tab
+        self.name_input.returnPressed.connect(
+            lambda: self.price_input.setFocus())
+        self.price_input.editingFinished.connect(
+            lambda: self.category_btn.setFocus())
+        self.category_btn.setFocusPolicy(Qt.StrongFocus)
+        self.category_btn.keyPressEvent = lambda event: self._category_btn_keypress(
+            event, self.category_btn)
+        self.description_input.returnPressed.connect(
+            lambda: self.complement_name_input.setFocus())
+        self.complement_name_input.returnPressed.connect(
+            lambda: self.complement_price_input.setFocus())
+        self.complement_price_input.editingFinished.connect(
+            lambda: add_complement_btn.setFocus())
+        add_complement_btn.setFocusPolicy(Qt.StrongFocus)
+        add_complement_btn.keyPressEvent = lambda event: self._add_complement_btn_keypress(
+            event, add_complement_btn)
+        remove_complement_btn.setFocusPolicy(Qt.StrongFocus)
+        self.item_complements_list.setFocusPolicy(Qt.StrongFocus)
+        add_item_btn.setFocusPolicy(Qt.StrongFocus)
+        add_item_btn.keyPressEvent = lambda event: self._add_item_btn_keypress(
+            event, add_item_btn)
+        self.mandatory_complements_widget.setFocusPolicy(Qt.StrongFocus)
+
+    def _category_btn_keypress(self, event, button):
+        """Gerencia navegação por teclado no botão de categoria"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.category_menu.popup(self.category_btn.mapToGlobal(
+                self.category_btn.rect().bottomLeft()))
+        elif event.key() == Qt.Key_Down:
+            self.description_input.setFocus()
+        elif event.key() == Qt.Key_Up:
+            self.price_input.setFocus()
+        else:
+            QPushButton.keyPressEvent(button, event)
+
+    def _add_complement_btn_keypress(self, event, button):
+        """Gerencia navegação por teclado no botão 'Adicionar Complemento'"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.add_item_specific_complement()
+            self.complement_name_input.setFocus()
+        elif event.key() == Qt.Key_Down:
+            self.item_complements_list.setFocus()
+        elif event.key() == Qt.Key_Up:
+            self.complement_price_input.setFocus()
+        else:
+            QPushButton.keyPressEvent(button, event)
+
+    def _add_item_btn_keypress(self, event, button):
+        """Gerencia navegação por teclado no botão 'Adicionar Item'"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.add_menu_item()
+            self.name_input.setFocus()
+        elif event.key() == Qt.Key_Up:
+            self.mandatory_complements_widget.setFocus()
+        else:
+            QPushButton.keyPressEvent(button, event)
+
+    def _category_add_btn_keypress(self, event, button):
+        """Gerencia navegação por teclado no botão 'Adicionar Categoria'"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.add_category_with_dialog()
+            self.category_new_input.setFocus()
+        elif event.key() == Qt.Key_Tab:
+            button.parent().findChild(QPushButton, "Complementos").setFocus()
+        elif event.key() == Qt.Key_Down:
+            self.categories_list.setFocus()
+        elif event.key() == Qt.Key_Up:
+            self.category_new_input.setFocus()
+        else:
+            QPushButton.keyPressEvent(button, event)
+
+    def _category_addition_btn_keypress(self, event, button):
+        """Gerencia navegação por teclado no botão 'Complementos'"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.open_category_additions()
+            self.category_new_input.setFocus()
+        elif event.key() == Qt.Key_Down:
+            self.categories_list.setFocus()
+        elif event.key() == Qt.Key_Up:
+            self.category_new_input.setFocus()
+        else:
+            QPushButton.keyPressEvent(button, event)
+
     def select_category(self, category):
         """Seleciona uma categoria e atualiza a interface."""
         self.selected_category = category
@@ -249,7 +332,7 @@ class MenuRegistrationWindow(QDialog):
         self.update_complement_lists()
 
     def add_item_specific_complement(self):
-        """Adiciona um complemento específico à lista temporária"""
+        """Adiciona um complemento específico à lista temporária e já marca como obrigatório"""
         name = self.complement_name_input.text().strip()
         price = self.complement_price_input.value()
 
@@ -267,7 +350,8 @@ class MenuRegistrationWindow(QDialog):
         # Adiciona à lista temporária
         complement = {
             'name': name,
-            'price': price
+            'price': price,
+            'mandatory': True  # novo campo para marcar como obrigatório
         }
         self.item_specific_complements.append(complement)
 
@@ -277,6 +361,9 @@ class MenuRegistrationWindow(QDialog):
 
         # Atualiza a lista visual
         self.update_complement_lists()
+
+        # Retorna o foco para o campo de nome do complemento
+        self.complement_name_input.setFocus()
 
     def remove_item_specific_complement(self):
         """Remove um complemento específico da lista temporária"""
@@ -319,6 +406,7 @@ class MenuRegistrationWindow(QDialog):
             category_id = get_category_id(
                 self.selected_category) if self.selected_category else None
             all_additions = []
+
             if category_id:
                 # Complementos da categoria
                 addition_ids = get_category_addition_ids(category_id)
@@ -329,10 +417,18 @@ class MenuRegistrationWindow(QDialog):
                         name, price = additions_dict[add_id]
                         all_additions.append(
                             {'id': add_id, 'name': name, 'price': price, 'source': 'category'})
+
             # Complementos específicos do item (temporários)
-            for comp in self.item_specific_complements:
-                all_additions.append({'id': comp.get(
-                    'id', comp['name']), 'name': comp['name'], 'price': comp['price'], 'source': 'specific'})
+            for i, comp in enumerate(self.item_specific_complements):
+                # Usa um ID temporário único para complementos específicos
+                temp_id = f"temp_{i}"
+                all_additions.append({
+                    'id': temp_id,
+                    'name': comp['name'],
+                    'price': comp['price'],
+                    'source': 'specific',
+                    'mandatory': comp.get('mandatory', False)
+                })
 
             if not all_additions:
                 label = QLabel(
@@ -349,7 +445,8 @@ class MenuRegistrationWindow(QDialog):
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.setSpacing(10)
                 checkbox = QCheckBox()
-                checkbox.setChecked(False)
+                # Marca como obrigatório se for complemento específico recém-criado
+                checkbox.setChecked(comp.get('mandatory', False))
                 checkbox.comp_data = {
                     'id': comp['id'], 'source': comp['source']}
                 label = QLabel(f"{comp['name']} - R$ {comp['price']:.2f}")
@@ -396,39 +493,41 @@ class MenuRegistrationWindow(QDialog):
 
         # Buscar o ID da categoria
         from database.db import (add_menu_item, get_category_addition_ids,
-                                 get_category_id, set_item_mandatory_additions)
+                                 get_category_id)
         category_id = get_category_id(category_name)
+
+        # Salvar complementos obrigatórios selecionados
+        mandatory_complement_ids = self.get_selected_mandatory_complements()
 
         # Buscar os IDs dos adicionais vinculados à categoria
         addition_ids = get_category_addition_ids(category_id)
 
-        # Salvar o item com os IDs da categoria
+        # Salvar o item com os IDs da categoria e obrigatórios
         item_id = add_menu_item(name, price, category_id,
-                                description, addition_ids)
+                                description, addition_ids,
+                                mandatory_complement_ids)
 
         # Salvar complementos específicos do item no banco
         specific_complement_ids = []
         if self.item_specific_complements:
             specific_complement_ids = self.save_item_specific_complements(
                 item_id)
-
-        # Salvar complementos obrigatórios selecionados
-        mandatory_complement_ids = self.get_selected_mandatory_complements()
         if mandatory_complement_ids:
-            # Filtra apenas IDs válidos (numéricos) e mapeia nomes temporários para IDs reais
+            # Filtra apenas IDs válidos (numéricos) para complementos da categoria
             valid_ids = []
             for comp_id in mandatory_complement_ids:
                 if isinstance(comp_id, int):
                     valid_ids.append(comp_id)
-                elif isinstance(comp_id, str):
-                    # Busca o ID real do complemento específico que foi salvo
-                    for saved_id, comp in zip(specific_complement_ids, self.item_specific_complements):
-                        if comp['name'] == comp_id:
-                            valid_ids.append(saved_id)
-                            break
-
-            if valid_ids:
-                set_item_mandatory_additions(item_id, valid_ids)
+                elif isinstance(comp_id, str) and comp_id.startswith('temp_'):
+                    # Para complementos específicos temporários, usa os IDs salvos
+                    try:
+                        temp_index = int(comp_id.split('_')[1])
+                        if temp_index < len(specific_complement_ids):
+                            valid_ids.append(
+                                specific_complement_ids[temp_index])
+                    except (ValueError, IndexError):
+                        logger.error(
+                            f"Erro ao processar complemento temporário: {comp_id}")
 
         # Limpa os campos
         self.name_input.clear()
@@ -453,25 +552,30 @@ class MenuRegistrationWindow(QDialog):
         # Emite sinal para notificar que um item foi adicionado
         self.item_added.emit()
 
-        QMessageBox.information(
-            self, "Sucesso", f"Item '{name}' adicionado com sucesso!")
+        # Retorna o foco para o campo de nome do item
+        self.name_input.setFocus()
 
     def save_item_specific_complements(self, item_id):
         """Salva os complementos específicos do item no banco de dados"""
-        from database.db import add_addition
+        from database.db import set_item_specific_additions
 
         try:
-            complement_ids = []
-            for comp in self.item_specific_complements:
-                # Adiciona cada complemento específico ao banco
-                comp_id = add_addition(comp['name'], comp['price'])
-                complement_ids.append(comp_id)
+            if not self.item_specific_complements:
+                return []
 
-            # Vincula os complementos específicos ao item
-            from database.db import set_item_specific_additions
-            set_item_specific_additions(item_id, complement_ids)
+            # Converte para o formato esperado pela função do banco
+            additions_data = [
+                {'name': comp['name'], 'price': comp['price']}
+                for comp in self.item_specific_complements
+            ]
 
-            return complement_ids
+            # Salva os complementos específicos do item
+            set_item_specific_additions(item_id, additions_data)
+
+            # Retorna os IDs dos complementos específicos salvos
+            from database.db import get_item_specific_additions
+            specific_additions = get_item_specific_additions(item_id)
+            return [addition[0] for addition in specific_additions]
 
         except Exception as e:
             logger.error(f"Erro ao salvar complementos específicos: {e}")
@@ -502,10 +606,22 @@ class MenuRegistrationWindow(QDialog):
         layout.addLayout(form_layout)
         # Lista de categorias
         self.categories_list = QListWidget()
+        self.categories_list.setStyleSheet("font-size: 16px;")
         for cat in self.categories:
             self.categories_list.addItem(cat)
         layout.addWidget(self.categories_list)
         self.tab_categories.setLayout(layout)
+
+        # Navegação por teclado - Categories tab
+        self.category_new_input.returnPressed.connect(
+            lambda: add_category_btn.setFocus())
+        add_category_btn.setFocusPolicy(Qt.StrongFocus)
+        add_category_btn.keyPressEvent = lambda event: self._category_add_btn_keypress(
+            event, add_category_btn)
+        btn_addition.setFocusPolicy(Qt.StrongFocus)
+        btn_addition.keyPressEvent = lambda event: self._category_addition_btn_keypress(
+            event, btn_addition)
+        self.categories_list.setFocusPolicy(Qt.StrongFocus)
 
     def add_category_with_dialog(self):
         name = self.category_new_input.text().strip()
@@ -522,9 +638,11 @@ class MenuRegistrationWindow(QDialog):
         # Após adicionar, já abre o diálogo para vincular adicionais
         self.open_link_additions_dialog(new_category=name)
         # Atualiza o menu de categorias na aba de itens
-        self.update_category_menu_items_tab()
+        self.update_category_menu_items_tab(new_category=name)
+        # Retorna o foco para o campo de nome
+        self.category_new_input.setFocus()
 
-    def update_category_menu_items_tab(self):
+    def update_category_menu_items_tab(self, new_category=None):
         # Atualiza o menu de categorias na aba de itens
         self.category_menu.clear()
         for cat in self.categories:
@@ -532,12 +650,18 @@ class MenuRegistrationWindow(QDialog):
             action.triggered.connect(
                 lambda checked, c=cat: self.select_category(c))
         if self.categories:
-            self.selected_category = self.categories[0]
+            # Se foi passada uma nova categoria, seleciona ela, senão mantém a atual
+            if new_category and new_category in self.categories:
+                self.selected_category = new_category
+            elif not self.selected_category or self.selected_category not in self.categories:
+                self.selected_category = self.categories[0]
             self.category_btn.setText(self.selected_category)
         else:
             self.selected_category = ''
             self.category_btn.setText("Selecione a categoria")
         self.update_additions_checks()
+        # Atualiza também os complementos para a nova categoria
+        self.update_complement_lists()
 
     def open_link_additions_dialog(self, new_category=None):
         if new_category:
@@ -562,6 +686,7 @@ class MenuRegistrationWindow(QDialog):
             selected = dialog.get_selected_additions()  # lista de IDs
             set_category_addition_ids(cat_id, selected)
             self.update_additions_checks()
+            self.update_complement_lists()
 
     def setup_additions_tab(self):
         if hasattr(self, 'tab_additions') and self.tab_additions.layout() is not None:
@@ -581,12 +706,9 @@ class MenuRegistrationWindow(QDialog):
         form_layout.addWidget(add_button)
         layout.addLayout(form_layout)
         # Layout dinâmico para exibir complementos vinculados à categoria
-        self.additions_layout = QVBoxLayout()
-        self.additions_layout.setContentsMargins(0, 0, 0, 0)
-        self.additions_layout.setSpacing(5)
-        layout.addLayout(self.additions_layout)
 
         self.additions_list = QListWidget()
+        self.additions_list.setStyleSheet("font-size: 16px;")
         # Exibe nome e valor do complemento
         for add_tuple in get_all_additions_with_id():
             _, add, price = add_tuple
@@ -595,14 +717,51 @@ class MenuRegistrationWindow(QDialog):
         layout.addWidget(self.additions_list)
         self.tab_additions.setLayout(layout)
 
+        # Navegação por teclado - Additions tab
+        self.addition_new_input.returnPressed.connect(
+            lambda: self.addition_price_input.setFocus())
+        self.addition_price_input.editingFinished.connect(
+            lambda: add_button.setFocus())
+        add_button.setFocusPolicy(Qt.StrongFocus)
+        add_button.keyPressEvent = lambda event: self._addition_add_btn_keypress(
+            event, add_button)
+        self.additions_list.setFocusPolicy(Qt.StrongFocus)
+
+    def _addition_add_btn_keypress(self, event, button):
+        """Gerencia navegação por teclado no botão 'Adicionar Complemento'"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.add_addition()
+            self.addition_new_input.setFocus()
+        elif event.key() == Qt.Key_Down:
+            self.additions_list.setFocus()
+        elif event.key() == Qt.Key_Up:
+            self.addition_price_input.setFocus()
+        else:
+            QPushButton.keyPressEvent(button, event)
+
     def add_addition(self):
         name = self.addition_new_input.text().strip()
         price = self.addition_price_input.value()
         if not name:
             QMessageBox.warning(self, "Erro", "Digite o nome do complemento.")
             return
-        if name in [a[1] for a in get_all_additions_with_id()]:
-            QMessageBox.warning(self, "Erro", "Complemento já existe.")
+        # Verifica se já existe complemento com esse nome
+        existing_additions = get_all_additions_with_id()
+        existing = [a for a in existing_additions if a[1].lower() ==
+                    name.lower()]
+        if existing:
+            # Complemento já existe, apenas atualiza a lista
+            QMessageBox.information(
+                self, "Info", f"Complemento '{name}' já existe e pode ser vinculado a outros itens.")
+            self.additions = get_all_additions_with_id()
+            self.additions_list.clear()
+            for _, add, price in self.additions:
+                item_text = f"{add}   R$ {price:.2f}"
+                self.additions_list.addItem(item_text)
+            self.addition_new_input.clear()
+            self.addition_price_input.setValue(0)
+            # Retorna o foco para o campo de nome
+            self.addition_new_input.setFocus()
             return
         add_addition(name, price)
         # Atualiza a lista de adicionais (id, nome, preço)
@@ -613,6 +772,10 @@ class MenuRegistrationWindow(QDialog):
             self.additions_list.addItem(item_text)
         self.addition_new_input.clear()
         self.addition_price_input.setValue(0)
+        # Atualiza a lista de complementos obrigatórios
+        self.update_complement_lists()
+        # Retorna o foco para o campo de nome
+        self.addition_new_input.setFocus()
 
     def open_category_additions(self):
         idx = self.categories_list.currentRow()
@@ -633,6 +796,7 @@ class MenuRegistrationWindow(QDialog):
             selected = dialog.get_selected_additions()  # lista de IDs
             set_category_addition_ids(cat_id, selected)
         self.update_additions_checks()
+        self.update_complement_lists()
 
     def refresh_categories_tab(self):
         self.setup_categories_tab()
@@ -648,41 +812,6 @@ class MenuRegistrationWindow(QDialog):
                     self.clear_layout(child.layout())
 
     def update_additions_checks(self):
-        # Atualiza a visualização dos adicionais vinculados à categoria selecionada
-        for i in reversed(range(self.additions_layout.count())):
-            widget = self.additions_layout.itemAt(i).widget()
-            if widget:
-                widget.setParent(None)
-        # Buscar o ID da categoria selecionada
-        from database.db import (get_all_additions_with_id,
-                                 get_category_addition_ids, get_category_id)
-        cat_id = None
-        if self.selected_category:
-            from database.db import get_category_id
-            cat_id = get_category_id(self.selected_category)
-        if not cat_id:
-            label = QLabel("Nenhum complemento vinculado a esta categoria.")
-            label.setStyleSheet("color: gray; font-style: italic;")
-            self.additions_layout.addWidget(label)
-            return
-        # Busca os IDs dos adicionais vinculados
-        addition_ids = get_category_addition_ids(cat_id)
-        # Busca todos os adicionais (id, nome, preco)
-        all_additions = {add_id: (name, price)
-                         for add_id, name, price in get_all_additions_with_id()}
-        if not addition_ids:
-            label = QLabel("Nenhum complemento vinculado a esta categoria.")
-            label.setStyleSheet("color: gray; font-style: italic;")
-            self.additions_layout.addWidget(label)
-        else:
-            for add_id in addition_ids:
-                name, price = all_additions.get(add_id, ("(Removido)", 0.0))
-                label = QLabel(f"• {name}   R$ {price:.2f}")
-                self.additions_layout.addWidget(label)
-
-    def refresh_items_list(self):
-        """Atualiza a lista de itens cadastrados (se existir)"""
-        # Este método pode ser implementado se houver uma lista de itens na interface
+        # Método mantido para compatibilidade, mas sem funcionalidade
+        # A exibição dos adicionais é feita através do additions_list
         pass
-
-# Fim do arquivo
