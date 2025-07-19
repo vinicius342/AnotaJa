@@ -8,7 +8,7 @@ CUSTOMER_LINEEDIT_BASE_STYLE = (
     "background-color: white;"
     "}"
     "QLineEdit:focus {"
-    "border-color: #4CAF50;"
+    "border-color: #2a7;"
     "}"
 )
 
@@ -22,7 +22,7 @@ CUSTOMER_LINEEDIT_NO_BORDER_STYLE = (
     "border-bottom: none;"
     "}"
     "QLineEdit:focus {"
-    "border-color: #4CAF50;"
+    "border-color: #2a7;"
     "border-bottom: none;"
     "}"
 )
@@ -63,22 +63,23 @@ QDialog {
 }
 
 QPushButton {
-    background-color: #4CAF50;
+    background-color: #2a7;
     border: none;
-    color: #222;
-    padding: 8px 16px;
+    color: #fff;
+    padding: 8px;
     text-align: center;
     font-size: 14px;
-    margin: 4px 2px;
     border-radius: 4px;
 }
 
 QPushButton:hover {
-    background-color: #45a049;
+    background-color: #1ec989;
+    color: #fff;
 }
 
 QPushButton:pressed {
-    background-color: #3d8b40;
+    background-color: #288f68;
+    color: #fff;
 }
 
 QPushButton:disabled {
@@ -94,7 +95,7 @@ QLineEdit {
     background-color: white;
 }
 QLineEdit:focus {
-    border-color: #4CAF50;
+    border-color: #2a7;
 }
 
 QTableWidget {
@@ -107,8 +108,8 @@ QTableWidget::item {
 }
 
 QTableWidget::item:selected {
-    background-color: #4CAF50;
-    color: #222;
+    background-color: #2a7;
+    color: #fff;
 }
 
 QComboBox {
@@ -119,7 +120,7 @@ QComboBox {
 }
 
 QComboBox:hover {
-    border-color: #4CAF50;
+    border-color: #2a7;
 }
 
 QComboBox::drop-down {
@@ -144,7 +145,7 @@ QListWidget, QListWidget::item {
 }
 
 QListWidget::item:selected {
-    background-color: #4CAF50;
+    background-color: #2a7;
     color: #fff;
 }
 
@@ -154,7 +155,7 @@ QMenu, QMenu::item {
 }
 
 QMenu::item:selected {
-    background-color: #4CAF50;
+    background-color: #2a7;
     color: #fff;
 }
 
@@ -179,13 +180,14 @@ QTabBar::tab {
 }
 
 QTabBar::tab:selected {
-    background-color: #4CAF50;
-    color: #222;
-    border-top: 2px solid #388e3c;
+    background-color: #2a7;
+    color: #fff;
+    border-top: 2px solid #2a7;
 }
 
 QTabBar::tab:hover {
-    background-color: #c8e6c9;
+    background-color: #3bb75e;
+    color: #fff;
 }
 
 QMenuBar {
@@ -202,7 +204,7 @@ QMenuBar::item {
 }
 
 QMenuBar::item:selected {
-    background-color: #4CAF50;
-    color: black;
+    background-color: #2a7;
+    color: #fff;
 }
 """

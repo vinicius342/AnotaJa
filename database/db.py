@@ -1,7 +1,17 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / 'data' / 'menu.db'
+# Importa apenas quando necessário para evitar dependência circular
+try:
+    from utils.log_utils import get_logger
+    LOGGER = get_logger(__name__)
+except ImportError:
+    # Fallback simples caso não consiga importar
+    class DummyLogger:
+        def error(self, msg): print(f"ERROR: {msg}")
+    LOGGER = DummyLogger()
+
+DB_PATH = Path(__file__).parent.parent / 'data' / 'database.db'
 
 
 def get_connection():
@@ -109,6 +119,7 @@ def init_db():
                 item_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 price REAL NOT NULL DEFAULT 0.0,
+                is_mandatory BOOLEAN DEFAULT 0,
                 FOREIGN KEY (item_id) REFERENCES menu_items(id)
             )
         ''')
@@ -119,6 +130,15 @@ def init_db():
         if 'is_mandatory' not in columns:
             cursor.execute('''
                 ALTER TABLE item_addition_link 
+                ADD COLUMN is_mandatory BOOLEAN DEFAULT 0
+            ''')
+
+        # Migração: adicionar coluna is_mandatory aos complementos específicos se não existir
+        cursor.execute("PRAGMA table_info(item_specific_additions)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'is_mandatory' not in columns:
+            cursor.execute('''
+                ALTER TABLE item_specific_additions 
                 ADD COLUMN is_mandatory BOOLEAN DEFAULT 0
             ''')
 
@@ -313,13 +333,36 @@ def update_menu_item(item_id, name, price, category_id, description, addition_id
 
 
 def set_category_additions(category, additions):
+    """Atualiza os vínculos de categoria-adicionais de forma otimizada"""
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Busca vínculos atuais
         cursor.execute(
-            'DELETE FROM category_addition_link WHERE category_id = ?', (category,))
-        for add in additions:
+            'SELECT addition_id FROM category_addition_link WHERE category_id = ?',
+            (category,)
+        )
+        current_additions = {row[0] for row in cursor.fetchall()}
+        new_additions = set(additions)
+
+        # Remove vínculos que não estão na nova lista
+        to_remove = current_additions - new_additions
+        if to_remove:
+            placeholders = ','.join('?' * len(to_remove))
             cursor.execute(
-                'INSERT INTO category_addition_link (category_id, addition_id) VALUES (?, ?)', (category, add))
+                f'DELETE FROM category_addition_link WHERE category_id = ? AND addition_id IN ({placeholders})',
+                (category,) + tuple(to_remove)
+            )
+
+        # Adiciona novos vínculos que não existem
+        to_add = new_additions - current_additions
+        if to_add:
+            for add_id in to_add:
+                cursor.execute(
+                    'INSERT INTO category_addition_link (category_id, addition_id) VALUES (?, ?)',
+                    (category, add_id)
+                )
+
         conn.commit()
 
 
@@ -359,13 +402,38 @@ def get_category_addition_ids(category_id):
 
 
 def set_category_addition_ids(category_id, addition_ids):
+    """Atualiza os vínculos categoria-adicionais de forma otimizada"""
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Busca vínculos atuais
         cursor.execute(
-            'DELETE FROM category_addition_link WHERE category_id = ?', (category_id,))
-        for add_id in addition_ids:
+            'SELECT addition_id FROM category_addition_link WHERE category_id = ?',
+            (category_id,)
+        )
+        current_additions = {row[0] for row in cursor.fetchall()}
+        new_additions = set(addition_ids)
+
+        # Remove vínculos que não estão na nova lista
+        to_remove = current_additions - new_additions
+        if to_remove:
+            placeholders = ','.join('?' * len(to_remove))
             cursor.execute(
-                'INSERT INTO category_addition_link (category_id, addition_id) VALUES (?, ?)', (category_id, add_id))
+                f'DELETE FROM category_addition_link WHERE category_id = ? '
+                f'AND addition_id IN ({placeholders})',
+                (category_id,) + tuple(to_remove)
+            )
+
+        # Adiciona novos vínculos que não existem
+        to_add = new_additions - current_additions
+        if to_add:
+            for add_id in to_add:
+                cursor.execute(
+                    'INSERT INTO category_addition_link (category_id, addition_id) '
+                    'VALUES (?, ?)',
+                    (category_id, add_id)
+                )
+
         conn.commit()
 
 
@@ -646,48 +714,131 @@ def get_all_additions_for_item(item_id, category_id):
 
 def get_all_additions_for_item_with_mandatory_info(item_id, category_id):
     """Retorna complementos com informação sobre obrigatoriedade"""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        # Busca complementos da categoria e específicos do item com info de obrigatoriedade
-        cursor.execute('''
-            SELECT DISTINCT a.id, a.name, a.price, 
-                   COALESCE(ial.is_mandatory, 0) as is_mandatory
-            FROM additions a
-            LEFT JOIN category_addition_link cal ON a.id = cal.addition_id
-            LEFT JOIN item_addition_link ial ON a.id = ial.addition_id AND ial.item_id = ?
-            WHERE cal.category_id = ? OR ial.item_id = ?
-            ORDER BY is_mandatory DESC, a.name
-        ''', (item_id, category_id, item_id))
-        return cursor.fetchall()
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            # Complementos de categoria e vinculados ao item
+            cursor.execute('''
+                SELECT DISTINCT a.id, a.name, a.price, 
+                       COALESCE(ial.is_mandatory, 0) as is_mandatory
+                FROM additions a
+                LEFT JOIN category_addition_link cal ON a.id = cal.addition_id
+                LEFT JOIN item_addition_link ial ON a.id = ial.addition_id AND ial.item_id = ?
+                WHERE cal.category_id = ? OR ial.item_id = ?
+                ORDER BY is_mandatory DESC, a.name
+            ''', (item_id, category_id, item_id))
+            additions = cursor.fetchall()
+
+            # Complementos específicos do item
+            cursor.execute('''
+                SELECT id, name, price, is_mandatory
+                FROM item_specific_additions
+                WHERE item_id = ?
+                ORDER BY is_mandatory DESC, name
+            ''', (item_id,))
+            specific_additions = cursor.fetchall()
+
+            # Junta tudo em uma lista só
+            all_additions = list(additions) + list(specific_additions)
+            return all_additions
+    except Exception as e:
+        LOGGER.error(f"Erro na consulta de complementos: {e}")
+        return []  # Retorna lista vazia em caso de erro
 
 
 def get_item_specific_additions(item_id):
-    """Retorna os complementos específicos de um item"""
+    """Retorna os complementos específicos de um item com informação de obrigatoriedade"""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT id, name, price FROM item_specific_additions WHERE item_id = ?',
+            'SELECT id, name, price, COALESCE(is_mandatory, 0) FROM item_specific_additions WHERE item_id = ?',
             (item_id,)
         )
         return cursor.fetchall()
 
 
+def update_item_specific_addition(addition_id, name, price, is_mandatory=None):
+    """Atualiza um complemento específico mantendo o ID"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if is_mandatory is not None:
+            cursor.execute(
+                'UPDATE item_specific_additions SET name = ?, price = ?, is_mandatory = ? WHERE id = ?',
+                (name, price, int(is_mandatory), addition_id)
+            )
+        else:
+            cursor.execute(
+                'UPDATE item_specific_additions SET name = ?, price = ? WHERE id = ?',
+                (name, price, addition_id)
+            )
+        conn.commit()
+
+
+def delete_item_specific_addition(addition_id):
+    """Remove um complemento específico por ID"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'DELETE FROM item_specific_additions WHERE id = ?', (addition_id,)
+        )
+        conn.commit()
+
+
+def add_item_specific_addition_single(item_id, name, price, is_mandatory=False):
+    """Adiciona um único complemento específico para um item"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO item_specific_additions (item_id, name, price, is_mandatory) VALUES (?, ?, ?, ?)',
+            (item_id, name, price, int(is_mandatory))
+        )
+        addition_id = cursor.lastrowid
+        conn.commit()
+        return addition_id
+
+
 def set_item_specific_additions(item_id, additions_data):
     """Define os complementos específicos de um item
-    additions_data: lista de dicionários com 'name' e 'price'
+    additions_data: lista de dicionários com 'name', 'price', 'is_mandatory' e opcionalmente 'id'
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        # Remove complementos específicos anteriores
+
+        # Busca IDs existentes
         cursor.execute(
-            'DELETE FROM item_specific_additions WHERE item_id = ?', (item_id,)
+            'SELECT id FROM item_specific_additions WHERE item_id = ?', (
+                item_id,)
         )
-        # Adiciona os novos complementos específicos
+        existing_ids = {row[0] for row in cursor.fetchall()}
+
+        # IDs que serão mantidos/atualizados
+        updated_ids = set()
+
         for addition in additions_data:
+            if 'id' in addition and addition['id'] and addition['id'] in existing_ids:
+                # Atualiza existente
+                cursor.execute(
+                    'UPDATE item_specific_additions SET name = ?, price = ?, is_mandatory = ? WHERE id = ?',
+                    (addition['name'], addition['price'], int(
+                        addition.get('is_mandatory', False)), addition['id'])
+                )
+                updated_ids.add(addition['id'])
+            else:
+                # Adiciona novo
+                cursor.execute(
+                    'INSERT INTO item_specific_additions (item_id, name, price, is_mandatory) VALUES (?, ?, ?, ?)',
+                    (item_id, addition['name'], addition['price'], int(
+                        addition.get('is_mandatory', False)))
+                )
+
+        # Remove os que não estão na lista
+        ids_to_remove = existing_ids - updated_ids
+        for id_to_remove in ids_to_remove:
             cursor.execute(
-                'INSERT INTO item_specific_additions (item_id, name, price) VALUES (?, ?, ?)',
-                (item_id, addition['name'], addition['price'])
+                'DELETE FROM item_specific_additions WHERE id = ?', (
+                    id_to_remove,)
             )
+
         conn.commit()
 
 
@@ -743,6 +894,22 @@ def set_item_mandatory_additions(item_id, addition_ids):
         conn.commit()
 
 
+def set_item_specific_mandatory_additions(item_id, specific_addition_ids):
+    """Define quais complementos específicos são obrigatórios para um item"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Atualiza o campo is_mandatory para todos os complementos específicos do item
+        cursor.execute(
+            'UPDATE item_specific_additions SET is_mandatory = 0 WHERE item_id = ?', (item_id,))
+        # Marca os complementos específicos selecionados como obrigatórios
+        if specific_addition_ids:
+            placeholders = ','.join(['?' for _ in specific_addition_ids])
+            cursor.execute(
+                f'UPDATE item_specific_additions SET is_mandatory = 1 WHERE item_id = ? AND id IN ({placeholders})',
+                [item_id] + specific_addition_ids)
+        conn.commit()
+
+
 def get_item_mandatory_additions(item_id):
     """Retorna os IDs dos complementos obrigatórios para um item"""
     with get_connection() as conn:
@@ -793,14 +960,14 @@ def get_all_available_additions_for_item(item_id, category_id):
         return all_additions
 
 
-def add_item_specific_addition(item_id, name, price):
+def add_item_specific_addition(item_id, name, price, is_mandatory=False):
     """Adiciona um complemento específico para um item"""
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
             cursor.execute(
-                'INSERT INTO item_specific_additions (item_id, name, price) VALUES (?, ?, ?)',
-                (item_id, name, price)
+                'INSERT INTO item_specific_additions (item_id, name, price, is_mandatory) VALUES (?, ?, ?, ?)',
+                (item_id, name, price, int(is_mandatory))
             )
             addition_id = cursor.lastrowid
             conn.commit()
@@ -829,7 +996,9 @@ def get_all_additions_for_item_with_mandatory_and_specific_info(item_id, categor
 
         # Busca complementos específicos do item
         cursor.execute('''
-            SELECT isa.id, isa.name, isa.price, 0 as is_mandatory, 'item_specific' as source
+            SELECT isa.id, isa.name, isa.price, 
+                   COALESCE(isa.is_mandatory, 0) as is_mandatory, 
+                   'item_specific' as source
             FROM item_specific_additions isa
             WHERE isa.item_id = ?
         ''', (item_id,))
@@ -838,5 +1007,4 @@ def get_all_additions_for_item_with_mandatory_and_specific_info(item_id, categor
         # Combina os resultados
         all_additions = list(category_additions) + \
             list(item_specific_additions)
-        return all_additions
         return all_additions

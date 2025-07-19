@@ -123,7 +123,15 @@ class CustomerSearchWidget(QWidget):
 
         # Adiciona os itens filtrados na lista
         for nome, tel in filtered_customers:
-            suggestion_text = f"{nome} - {tel}"
+            if nome and tel:
+                # Nome seguido de hífen e telefone
+                suggestion_text = f"{nome} - {tel}"
+            elif nome:
+                suggestion_text = nome
+            elif tel:
+                suggestion_text = tel
+            else:
+                suggestion_text = "Cliente sem nome ou telefone"
             self.customer_data[suggestion_text] = {"name": nome, "phone": tel}
             self.suggestions_list.addItem(suggestion_text)
 
@@ -139,8 +147,8 @@ class CustomerSearchWidget(QWidget):
                 add_customer_item.setData(
                     Qt.ItemDataRole.UserRole, {"is_add_new": True})
                 self.suggestions_list.addItem(add_customer_item)
-            # Altura fixa para evitar movimento da barra
-            fixed_height = 120  # Altura menor para evitar problemas de buffer
+            # Altura fixa para aproveitar melhor o espaço disponível
+            fixed_height = 150  # Altura maior para aproveitar o espaço livre
             self.suggestions_list.setMaximumHeight(fixed_height)
             self.suggestions_list.setMinimumHeight(fixed_height)
             # Remove o border-bottom colorido da QLineEdit
@@ -174,9 +182,11 @@ class CustomerSearchWidget(QWidget):
                 selected_data = self.customer_data[suggestion_text]
                 self.customer_selected.emit(selected_data)
 
-                # Atualiza o campo de texto com o nome do cliente
-                customer_name = selected_data["name"]
-                self.customer_lineedit.setText(customer_name)
+                # Se a sugestão for só número, mantém o número na barra
+                if selected_data["name"] == "" and selected_data["phone"]:
+                    self.customer_lineedit.setText(selected_data["phone"])
+                else:
+                    self.customer_lineedit.setText(selected_data["name"])
 
                 # Esconde as sugestões
                 self.hide_suggestions()
@@ -346,7 +356,12 @@ class ItemSearchWidget(QWidget):
         # Adiciona os itens filtrados na lista
         for item in filtered_items:
             # item: (id, name, price, category_id, category_name, description)
-            suggestion_text = f"{item[1]}"
+            name = item[1]
+            price = item[2]
+            if price and price != 0:
+                suggestion_text = f"{name} - R$ {price:.2f}"
+            else:
+                suggestion_text = name
             self.item_data[suggestion_text] = item
             self.suggestions_list.addItem(suggestion_text)
 
@@ -356,8 +371,8 @@ class ItemSearchWidget(QWidget):
         """Mostra a lista de sugestões com altura fixa."""
         if self.suggestions_list.count() > 0:
             self.suggestions_list.show()
-            # Altura fixa para evitar movimento da barra
-            fixed_height = 120  # Altura menor para evitar problemas de buffer
+            # Altura fixa para aproveitar melhor o espaço disponível
+            fixed_height = 150  # Altura maior para aproveitar o espaço livre
             self.suggestions_list.setMaximumHeight(fixed_height)
             self.suggestions_list.setMinimumHeight(fixed_height)
             # Remove o border-bottom colorido da QLineEdit

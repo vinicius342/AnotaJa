@@ -82,6 +82,12 @@ class CategoryAdditionsDialog(QDialog):
 
 
 class ItemAdditionsDialog(QDialog):
+    def closeEvent(self, event):
+        # Ao fechar o diálogo, foca no campo de busca de item se o parent tiver esse atributo
+        parent = self.parent()
+        if parent and hasattr(parent, 'item_search') and hasattr(parent.item_search, 'item_lineedit'):
+            parent.item_search.item_lineedit.setFocus()
+        super().closeEvent(event)
     """Diálogo para selecionar complementos específicos de um item"""
 
     def __init__(self, item_name, item_id, parent=None):
@@ -168,143 +174,171 @@ class ItemAdditionsDialog(QDialog):
         from database.db import get_item_specific_additions
         self.specific_complements = get_item_specific_additions(self.item_id)
         self.specific_list_widget.clear()
-        for comp_id, name, price in self.specific_complements:
-            item = QListWidgetItem(f"{name} - R$ {price:.2f}")
-            item.setData(Qt.UserRole, (comp_id, name, price))
+        for comp_id, name, price, is_mandatory in self.specific_complements:
+            mandatory_text = " (OBRIGATÓRIO)" if is_mandatory else ""
+            item = QListWidgetItem(f"{name} - R$ {price:.2f}{mandatory_text}")
+            item.setData(Qt.UserRole, (comp_id, name, price, is_mandatory))
             self.specific_list_widget.addItem(item)
 
     def edit_selected_specific(self):
         item = self.specific_list_widget.currentItem()
         if item:
-            comp_id, name, price = item.data(Qt.UserRole)
-            self.edit_specific_complement(comp_id, name, price)
+            comp_id, name, price, is_mandatory = item.data(Qt.UserRole)
+            self.edit_specific_complement(comp_id, name, price, is_mandatory)
 
     def remove_selected_specific(self):
         item = self.specific_list_widget.currentItem()
         if item:
-            comp_id, name, price = item.data(Qt.UserRole)
+            comp_id, name, price, is_mandatory = item.data(Qt.UserRole)
             self.remove_specific_complement(comp_id)
 
-    def edit_specific_complement(self, comp_id, name, price):
+    def edit_specific_complement(self, comp_id, name, price, is_mandatory=False):
         # Preenche campos para edição
         self.new_name_input.setText(name)
         self.new_price_input.setValue(price)
+
+        # Adiciona checkbox de obrigatoriedade se não existir
+        if not hasattr(self, 'mandatory_checkbox'):
+            self.mandatory_checkbox = QCheckBox("Obrigatório")
+            self.new_name_input.parentWidget().layout().addWidget(self.mandatory_checkbox)
+
+        self.mandatory_checkbox.setChecked(is_mandatory)
+        self.mandatory_checkbox.show()
+
         self.add_new_btn.setText("Salvar")
         self.add_new_btn.clicked.disconnect()
         self.add_new_btn.clicked.connect(
             lambda: self.save_specific_complement(comp_id))
 
-    def save_specific_complement(self, comp_id):
-        from database.db import (get_item_specific_additions,
-                                 set_item_specific_additions)
-        name = self.new_name_input.text().strip()
-        price = self.new_price_input.value()
-        if not name:
-            QMessageBox.warning(
-                self, "Erro", "Nome do complemento é obrigatório!")
-            return
-        # Atualiza no banco
-        comps = [(cid, n, p) for cid, n, p in self.specific_complements]
-        for i, (cid, _, _) in enumerate(comps):
-            if cid == comp_id:
-                comps[i] = (cid, name, price)
-        # Envia lista de tuplas (name, price) para o banco
-        set_item_specific_additions(
-            self.item_id, [(n, p) for _, n, p in comps])
+        # Adiciona botão de cancelar edição se não existir
+        if not hasattr(self, 'cancel_edit_btn') or self.cancel_edit_btn is None:
+            self.cancel_edit_btn = QPushButton("Cancelar")
+            self.cancel_edit_btn.setStyleSheet(
+                "QPushButton { background-color: #d9534f; color: white; font-weight: bold; }")
+            self.cancel_edit_btn.clicked.connect(self.cancel_edit_specific)
+            self.new_name_input.parentWidget().layout().addWidget(self.cancel_edit_btn)
+        self.cancel_edit_btn.show()
+
+    def cancel_edit_specific(self):
+        # Restaura campo de adicionar
         self.new_name_input.clear()
         self.new_price_input.setValue(0.0)
         self.add_new_btn.setText("Adicionar")
         self.add_new_btn.clicked.disconnect()
         self.add_new_btn.clicked.connect(self.add_new_addition)
-        self.load_specific_complements()
-        self.load_additions()
+        if hasattr(self, 'cancel_edit_btn') and self.cancel_edit_btn:
+            self.cancel_edit_btn.hide()
+        if hasattr(self, 'mandatory_checkbox') and self.mandatory_checkbox:
+            self.mandatory_checkbox.hide()
+
+    def save_specific_complement(self, comp_id):
+        from database.db import update_item_specific_addition
+        name = self.new_name_input.text().strip()
+        price = self.new_price_input.value()
+        is_mandatory = hasattr(
+            self, 'mandatory_checkbox') and self.mandatory_checkbox.isChecked()
+
+        if not name:
+            QMessageBox.warning(
+                self, "Erro", "Nome do complemento é obrigatório!")
+            return
+
+        try:
+            # Atualiza diretamente no banco usando o ID
+            update_item_specific_addition(comp_id, name, price, is_mandatory)
+
+            # Restaura estado do formulário
+            self.new_name_input.clear()
+            self.new_price_input.setValue(0.0)
+            self.add_new_btn.setText("Adicionar")
+            self.add_new_btn.clicked.disconnect()
+            self.add_new_btn.clicked.connect(self.add_new_addition)
+            if hasattr(self, 'cancel_edit_btn') and self.cancel_edit_btn:
+                self.cancel_edit_btn.hide()
+            if hasattr(self, 'mandatory_checkbox') and self.mandatory_checkbox:
+                self.mandatory_checkbox.hide()
+
+            # Atualiza as listas
+            self.load_specific_complements()
+            self.load_additions()
+
+            QMessageBox.information(
+                self, "Sucesso", "Complemento atualizado com sucesso!")
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Erro", f"Erro ao atualizar complemento: {str(e)}")
 
     def remove_specific_complement(self, comp_id):
-        from database.db import set_item_specific_additions
-        comps = [(cid, n, p)
-                 for cid, n, p in self.specific_complements if cid != comp_id]
-        set_item_specific_additions(
-            self.item_id, [{'name': n, 'price': p} for _, n, p in comps])
-        self.load_specific_complements()
-        self.load_additions()
+        from database.db import delete_item_specific_addition
+        try:
+            # Remove diretamente do banco usando o ID
+            delete_item_specific_addition(comp_id)
+
+            # Atualiza as listas
+            self.load_specific_complements()
+            self.load_additions()
+
+            QMessageBox.information(
+                self, "Sucesso", "Complemento removido com sucesso!")
+        except Exception as e:
+            QMessageBox.critical(
+                self, "Erro", f"Erro ao remover complemento: {str(e)}")
 
     def load_additions(self):
         """Carrega todos os complementos obrigatórios (categoria + específicos)"""
-        from database.db import (get_category_additions, get_category_id,
-                                 get_item_specific_additions)
+        from database.db import (
+            get_all_additions_for_item_with_mandatory_and_specific_info,
+            get_category_id, get_menu_items)
 
         # Limpa o layout atual
         while self.additions_layout.count():
             child = self.additions_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
-        # Complementos da categoria do item
-        from database.db import (get_category_addition_ids, get_category_id,
-                                 get_menu_items)
+
+        # Busca informações do item
         items = get_menu_items()
         item_category = None
-        item_id = None
+        cat_id = None
         for item in items:
             # item: (id, name, price, category_name, description, additions)
             if item[1] == self.item_name:
                 item_category = item[3]
-                item_id = item[0]
+                cat_id = get_category_id(item_category)
                 break
-        cat_id = get_category_id(item_category) if item_category else None
-        category_addition_ids = get_category_addition_ids(
-            cat_id) if cat_id else []
-        # Complementos específicos do item
-        specific_comps = get_item_specific_additions(self.item_id)
-        # IDs obrigatórios já salvos - obtém da nova função
+
+        if not cat_id:
+            return
+
+        # Busca todos os complementos com informações de obrigatoriedade
         try:
-            from database.db import \
-                get_all_additions_for_item_with_mandatory_info
-            all_additions_info = (
-                get_all_additions_for_item_with_mandatory_info(
-                    self.item_id, self.category_id))
-            mandatory_ids = [add_id for add_id, name, price, is_mandatory
-                             in all_additions_info if is_mandatory]
+            all_additions_info = get_all_additions_for_item_with_mandatory_and_specific_info(
+                self.item_id, cat_id)
         except Exception:
-            mandatory_ids = []
-        # Monta lista completa
-        all_additions = []
-        from database.db import get_all_additions_with_id
-        additions_dict = {add_id: (name, price)
-                          for add_id, name, price in get_all_additions_with_id()}
-        # Adiciona complementos da categoria
-        for add_id in category_addition_ids:
-            if add_id in additions_dict:
-                name, price = additions_dict[add_id]
-                all_additions.append(
-                    {'id': add_id, 'name': name, 'price': price, 'source': 'category'})
-        # Adiciona complementos específicos do item
-        for comp in specific_comps:
-            cid, name, price = comp
-            all_additions.append(
-                {'id': cid, 'name': name, 'price': price, 'source': 'specific'})
+            all_additions_info = []
+
         # Exibe na interface
         self.addition_checks = []
         self.addition_ids = []
-        for comp in all_additions:
+        for comp_id, name, price, is_mandatory, source in all_additions_info:
             row_widget = QWidget()
             row_layout = QHBoxLayout()
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(10)
-            checkbox = QCheckBox(f"{comp['name']} - R$ {comp['price']:.2f}")
-            # Marca se for obrigatório (is_mandatory=1) ou se for específico do item
-            checked = False
-            if 'is_mandatory' in comp:
-                checked = comp.get('is_mandatory', 0) == 1
-            # Para complementos específicos, sempre marca
-            if comp.get('source') == 'specific':
-                checked = True
-            checkbox.setChecked(checked)
-            checkbox.comp_data = {'id': comp['id'], 'source': comp['source']}
+
+            checkbox_text = f"{name} - R$ {price:.2f}"
+            if source == 'item_specific':
+                checkbox_text += " (Específico)"
+
+            checkbox = QCheckBox(checkbox_text)
+            checkbox.setChecked(bool(is_mandatory))
+            checkbox.comp_data = {'id': comp_id, 'source': source}
+
             row_layout.addWidget(checkbox)
             row_widget.setLayout(row_layout)
             self.additions_layout.addWidget(row_widget)
             self.addition_checks.append(checkbox)
-            self.addition_ids.append(comp['id'])
+            self.addition_ids.append(comp_id)
 
     def add_new_addition(self):
         """Adiciona um novo complemento específico ao item"""
@@ -317,16 +351,9 @@ class ItemAdditionsDialog(QDialog):
             return
 
         try:
-            # Recupera lista atual de complementos específicos
-            from database.db import (get_item_specific_additions,
-                                     set_item_specific_additions)
-            comps = get_item_specific_additions(self.item_id)
-            # None para novo, o banco deve gerar o id
-            comps.append((None, name, price))
-            # Salva todos os complementos específicos do item (formato correto)
-            set_item_specific_additions(self.item_id, [
-                {'name': n, 'price': p} for _, n, p in comps
-            ])
+            # Adiciona diretamente no banco
+            from database.db import add_item_specific_addition_single
+            add_item_specific_addition_single(self.item_id, name, price)
 
             # Limpa os campos
             self.new_name_input.clear()
@@ -353,14 +380,33 @@ class ItemAdditionsDialog(QDialog):
 
     def save_selections(self):
         """Salva as seleções no banco de dados"""
+        from database.db import (set_item_mandatory_additions,
+                                 set_item_specific_mandatory_additions)
+
         selected_ids = self.get_selected_additions()
-        # Filtra os complementos específicos selecionados
-        selected_comps = [
-            {'name': name, 'price': price}
-            for cid, name, price in self.specific_complements
-            if cid in selected_ids
-        ]
-        set_item_specific_additions(self.item_id, selected_comps)
+
+        # Separa IDs por tipo de complemento
+        category_addition_ids = []
+        specific_addition_ids = []
+
+        for i, checkbox in enumerate(self.addition_checks):
+            if checkbox.isChecked() and hasattr(checkbox, 'comp_data'):
+                comp_id = self.addition_ids[i]
+                source = checkbox.comp_data.get('source', '')
+
+                if source == 'category':
+                    category_addition_ids.append(comp_id)
+                elif source == 'item_specific':
+                    specific_addition_ids.append(comp_id)
+
+        # Salva obrigatoriedade dos complementos da categoria
+        if category_addition_ids:
+            set_item_mandatory_additions(self.item_id, category_addition_ids)
+
+        # Salva obrigatoriedade dos complementos específicos
+        if specific_addition_ids:
+            set_item_specific_mandatory_additions(
+                self.item_id, specific_addition_ids)
 
 
 class MenuEditDialogItem(QDialog):

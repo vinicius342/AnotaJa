@@ -4,7 +4,7 @@ import sys
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QApplication, QComboBox, QDialog,
-                               QDialogButtonBox, QGridLayout, QLabel,
+                               QDialogButtonBox, QFrame, QGridLayout, QLabel,
                                QMainWindow, QMenu, QMenuBar, QMessageBox,
                                QPushButton, QVBoxLayout, QWidget)
 
@@ -126,6 +126,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         layout = QGridLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         central_widget.setLayout(layout)
 
         # Criar 4 telas de pedido independentes
@@ -134,10 +136,29 @@ class MainWindow(QMainWindow):
         self.screen3 = OrderScreen("Pedido 3", customers=ALL_CUSTOMERS)
         self.screen4 = OrderScreen("Pedido 4", customers=ALL_CUSTOMERS)
 
+        # Adiciona os frames dos pedidos
         layout.addWidget(self.screen1, 0, 0)
-        layout.addWidget(self.screen2, 0, 1)
-        layout.addWidget(self.screen3, 1, 0)
-        layout.addWidget(self.screen4, 1, 1)
+        layout.addWidget(self.screen2, 0, 2)
+        layout.addWidget(self.screen3, 2, 0)
+        layout.addWidget(self.screen4, 2, 2)
+
+        # Linha vertical
+        vline = QFrame()
+        vline.setFrameShape(QFrame.VLine)
+        vline.setFrameShadow(QFrame.Sunken)
+        vline.setLineWidth(2)
+        vline.setStyleSheet(
+            "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+        layout.addWidget(vline, 0, 1, 3, 1)
+
+        # Linha horizontal
+        hline = QFrame()
+        hline.setFrameShape(QFrame.HLine)
+        hline.setFrameShadow(QFrame.Sunken)
+        hline.setLineWidth(2)
+        hline.setStyleSheet(
+            "QFrame { border-top: 1px solid #bbb; margin: 0; }")
+        layout.addWidget(hline, 1, 0, 1, 3)
 
     def open_settings(self):
         global DEFAULT_PRINTER

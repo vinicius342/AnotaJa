@@ -220,8 +220,6 @@ class MenuRegistrationWindow(QDialog):
         # ...existing code...
         # Botão para adicionar item
         add_item_btn = QPushButton("Adicionar Item")
-        add_item_btn.setStyleSheet(
-            "background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
         add_item_btn.clicked.connect(self.add_menu_item)
         layout.addWidget(add_item_btn)
 
@@ -332,7 +330,7 @@ class MenuRegistrationWindow(QDialog):
         self.update_complement_lists()
 
     def add_item_specific_complement(self):
-        """Adiciona um complemento específico à lista temporária e já marca como obrigatório"""
+        """Adiciona um complemento específico à lista temporária"""
         name = self.complement_name_input.text().strip()
         price = self.complement_price_input.value()
 
@@ -351,7 +349,7 @@ class MenuRegistrationWindow(QDialog):
         complement = {
             'name': name,
             'price': price,
-            'mandatory': True  # novo campo para marcar como obrigatório
+            'mandatory': False  # pode ser definido no checkbox
         }
         self.item_specific_complements.append(complement)
 
@@ -563,11 +561,29 @@ class MenuRegistrationWindow(QDialog):
             if not self.item_specific_complements:
                 return []
 
+            # Primeiro, atualiza os valores de mandatory dos complementos
+            # baseado nos checkboxes selecionados
+            if hasattr(self, 'mandatory_complements_checkboxes'):
+                for checkbox in self.mandatory_complements_checkboxes:
+                    comp_data = getattr(checkbox, 'comp_data', None)
+                    if comp_data and comp_data['source'] == 'specific':
+                        comp_id = comp_data['id']
+                        if comp_id.startswith('temp_'):
+                            temp_index = int(comp_id.split('_')[1])
+                            complements_list = self.item_specific_complements
+                            if temp_index < len(complements_list):
+                                complement = complements_list[temp_index]
+                                complement['mandatory'] = checkbox.isChecked()
+
             # Converte para o formato esperado pela função do banco
-            additions_data = [
-                {'name': comp['name'], 'price': comp['price']}
-                for comp in self.item_specific_complements
-            ]
+            additions_data = []
+            for comp in self.item_specific_complements:
+                addition_data = {
+                    'name': comp['name'],
+                    'price': comp['price'],
+                    'is_mandatory': comp.get('mandatory', False)
+                }
+                additions_data.append(addition_data)
 
             # Salva os complementos específicos do item
             set_item_specific_additions(item_id, additions_data)

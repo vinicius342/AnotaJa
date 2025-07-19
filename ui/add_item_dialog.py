@@ -2,12 +2,12 @@
 Diálogo para adicionar itens ao pedido com complementos.
 """
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QHBoxLayout,
-                               QLabel, QListWidget, QListWidgetItem,
-                               QMessageBox, QPushButton, QSpinBox, QTextEdit,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt, Signal, QEventLoop
+from PySide6.QtGui import QAction, QFont, QIcon, QKeySequence, QShortcut
+from PySide6.QtWidgets import (QApplication, QCheckBox, QGroupBox, QHBoxLayout,
+                               QLabel, QListWidget, QListWidgetItem, QMenu,
+                               QMessageBox, QPushButton, QScrollArea, QSpinBox,
+                               QTextEdit, QVBoxLayout, QWidget)
 
 from database.db import get_all_additions_for_item_with_mandatory_info
 from utils.log_utils import get_logger
@@ -15,25 +15,55 @@ from utils.log_utils import get_logger
 LOGGER = get_logger(__name__)
 
 
-class AddItemDialog(QDialog):
-    """Diálogo para adicionar item ao pedido com complementos."""
+class AddItemDialog(QWidget):
+    def exec(self):
+        """Simula o comportamento modal de QDialog para QWidget."""
+        self._accepted = False
+        self.show()
+        loop = QEventLoop()
+        self.destroyed.connect(loop.quit)
+        loop.exec()
+        return self._accepted
+
+    def accept(self):
+        self._accepted = True
+        self.close()
+
+    def reject(self):
+        self._accepted = False
+        self.close()
+    """Widget para adicionar item ao pedido com complementos."""
 
     item_added = Signal(dict)  # Sinal emitido quando item é adicionado
 
     def __init__(self, item_data, parent=None):
         super().__init__(parent)
-        self.item_data = item_data
-        self.selected_additions_data = []
-        self.setup_ui()
-        self.load_additions()
+        try:
+            # Configura como janela independente sem botão minimizar
+            self.setWindowFlags(
+                Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
+            self.setWindowModality(Qt.ApplicationModal)
+
+            self.item_data = item_data
+            self.selected_additions_data = []
+            self.setup_ui()
+            self.load_additions()
+
+            # Define foco inicial no campo de quantidade após carregar tudo
+            self.item_qty.setFocus()
+
+        except Exception as e:
+            LOGGER.error(f"Erro na inicialização do AddItemDialog: {e}")
+            QMessageBox.critical(None, "Erro",
+                                 f"Erro ao inicializar diálogo: {str(e)}")
+            self.close()  # Fecha o widget em caso de erro
 
     def setup_ui(self):
-        """Configura a interface do diálogo."""
+        """Configura a interface do widget."""
         self.setWindowTitle("Adicionar Item")
-        self.setModal(True)
         self.resize(500, 400)
 
-        # Posiciona o modal
+        # Posiciona o widget
         if self.parent():
             parent_geometry = self.parent().geometry()
             self.move(parent_geometry.x() + 50, parent_geometry.y() + 50)
@@ -56,8 +86,30 @@ class AddItemDialog(QDialog):
         # Botões finais
         self.setup_buttons(layout)
 
+        # Configurar atalhos de teclado
+        self.setup_keyboard_shortcuts()
+
+        # Configura eventos de teclado para navegação
+        self.item_qty.keyPressEvent = lambda event: self.qty_key_handler(event)
+
+    def setup_keyboard_shortcuts(self):
+        """Configura os atalhos de teclado."""
+        # Escape para cancelar
+        escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        escape_shortcut.activated.connect(self.close)
+
+        # Ctrl+Enter para adicionar o item ao pedido
+        add_item_shortcut = QShortcut(QKeySequence("Ctrl+Return"), self)
+        add_item_shortcut.activated.connect(self.add_to_order)
+
+        # Ctrl+M para focar nos complementos obrigatórios (Mandatory)
+        mandatory_shortcut = QShortcut(QKeySequence("Ctrl+M"), self)
+        mandatory_shortcut.activated.connect(self.focus_first_checkbox)
+
+        # Removido shortcut global de Enter para evitar conflito com campo de quantidade
+
     def setup_header(self, layout):
-        """Configura o header com nome, categoria (abaixo), quantidade e complementos obrigatórios."""
+        """Configura o header com nome, categoria (abaixo) e quantidade."""
         header_layout = QHBoxLayout()
 
         # Label do nome do item
@@ -76,15 +128,8 @@ class AddItemDialog(QDialog):
         self.item_qty.setMaximum(99)
         self.item_qty.setValue(1)
         self.item_qty.setFixedWidth(50)
+        self.item_qty.valueChanged.connect(self.update_total_price)
         header_layout.addWidget(self.item_qty)
-
-        # Complementos obrigatórios (QListWidget com checkbox)
-        self.mandatory_additions_list = QListWidget()
-        self.mandatory_additions_list.setMaximumHeight(60)
-        self.mandatory_additions_list.setMaximumWidth(180)
-        self.mandatory_additions_list.setStyleSheet(
-            "font-size: 12px; margin-left: 12px;")
-        header_layout.addWidget(self.mandatory_additions_list)
 
         header_layout.addStretch()
         layout.addLayout(header_layout)
@@ -98,17 +143,52 @@ class AddItemDialog(QDialog):
     def setup_additions_section(self, layout):
         """Configura a seção de complementos."""
         # Label dos complementos
-        additions_label = QLabel("Complementos:")
+        additions_label = QLabel("Complementos Obrigatórios:")
         additions_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(additions_label)
+
+        # NOVO: Seção de complementos obrigatórios com altura fixa e overscroll
+        self.mandatory_additions_layout = QVBoxLayout()
+        self.mandatory_additions_layout.setContentsMargins(5, 0, 5, 0)
+        self.mandatory_additions_layout.setSpacing(2)
+        mandatory_group = QGroupBox("Complementos obrigatórios")
+        mandatory_group.setStyleSheet("margin-bottom: 0px;")
+        # Widget para scroll
+        mandatory_widget = QWidget()
+        mandatory_widget.setLayout(self.mandatory_additions_layout)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(mandatory_widget)
+        # altura fixa, ajuste conforme necessário
+        scroll_area.setFixedHeight(130)
+        scroll_area.setStyleSheet(
+            "QScrollArea {background: transparent; border: none;} "
+            "QScrollBar:vertical {width: 8px;}")
+        group_layout = QVBoxLayout()
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.addWidget(scroll_area)
+        mandatory_group.setLayout(group_layout)
+        layout.addWidget(mandatory_group)
+
+        # Label "Complementos" acima do combo
+        complementos_label = QLabel("Complementos:")
+        complementos_label.setStyleSheet(
+            "font-weight: bold; margin-top: 10px;")
+        layout.addWidget(complementos_label)
 
         # Layout para seleção de complementos
         additions_layout = QHBoxLayout()
 
-        # Combo para selecionar complemento
-        self.additions_combo = QComboBox()
-        self.additions_combo.addItem("Selecione um complemento...")
-        additions_layout.addWidget(self.additions_combo)
+        # QPushButton + QMenu para selecionar complemento
+        self.additions_button = QPushButton("Selecione um complemento...")
+        self.additions_menu = QMenu()
+        self.additions_button.setMenu(self.additions_menu)
+
+        # Configura navegação por teclado no QPushButton
+        self.additions_button.keyPressEvent = lambda event: \
+            self.button_key_handler(event)
+
+        additions_layout.addWidget(self.additions_button)
 
         # Quantidade
         qty_label = QLabel("Qtd:")
@@ -118,12 +198,14 @@ class AddItemDialog(QDialog):
         self.addition_qty.setMinimum(1)
         self.addition_qty.setMaximum(10)
         self.addition_qty.setValue(1)
+        # Configura navegação por teclado na quantidade
+        self.addition_qty.keyPressEvent = lambda event: \
+            self.addition_qty_key_handler(event)
         additions_layout.addWidget(self.addition_qty)
-
         # Botão adicionar
-        add_addition_btn = QPushButton("Adicionar")
-        add_addition_btn.clicked.connect(self.add_addition_to_list)
-        additions_layout.addWidget(add_addition_btn)
+        self.add_addition_btn = QPushButton("Adicionar")
+        self.add_addition_btn.clicked.connect(self.add_addition_to_list)
+        additions_layout.addWidget(self.add_addition_btn)
 
         layout.addLayout(additions_layout)
 
@@ -131,6 +213,16 @@ class AddItemDialog(QDialog):
         self.selected_additions = QListWidget()
         self.selected_additions.setMaximumHeight(100)
         layout.addWidget(self.selected_additions)
+
+        # Estilização de foco para checkboxes obrigatórios
+        self.setStyleSheet(self.styleSheet() + """
+            QCheckBox:focus {
+                outline: 2px solid #1976d2;
+                background-color: #e3f2fd;
+                border-radius: 3px;
+                padding: 2px;
+            }
+        """)
 
     def setup_observations_section(self, layout):
         """Configura a seção de observações."""
@@ -152,113 +244,408 @@ class AddItemDialog(QDialog):
         layout.addWidget(self.total_label)
 
     def setup_buttons(self, layout):
-        """Configura os botões do diálogo."""
+        """Configura os botões do widget."""
         buttons_layout = QHBoxLayout()
 
         cancel_btn = QPushButton("Cancelar")
-        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.clicked.connect(self.close)
         buttons_layout.addWidget(cancel_btn)
 
-        add_btn = QPushButton("Adicionar ao Pedido")
-        add_btn.setStyleSheet("background-color: #4caf50; color: white;")
+        add_btn = QPushButton("Adicionar ao Pedido [Ctrl+Enter]")
         add_btn.clicked.connect(self.add_to_order)
         buttons_layout.addWidget(add_btn)
 
         layout.addLayout(buttons_layout)
 
     def load_additions(self):
-        """Carrega complementos da categoria e específicos do item."""
+        """Carrega todos os complementos do item (categoria e específicos)."""
         try:
-            # category_id = self.item_data[3], item_id = self.item_data[0]
-            additions = get_all_additions_for_item_with_mandatory_info(
-                self.item_data[0], self.item_data[3]
-            )
+            LOGGER.debug(f"Loading additions for item_data: {self.item_data}")
 
-            self.additions_combo.clear()
-            self.additions_combo.addItem("Selecione um complemento...")
+            # Valida dados do item
+            if not self.item_data or len(self.item_data) < 6:
+                LOGGER.error(f"item_data inválido: {self.item_data}")
+                raise ValueError("Dados do item inválidos")
 
-            self.mandatory_additions_list.clear()
-            for addition in additions:
-                # addition: (id, name, price, is_mandatory)
-                mandatory_text = " (OBRIGATÓRIO)" if addition[3] else ""
-                text = f"{addition[1]} - R$ {addition[2]:.2f}{mandatory_text}"
-                self.additions_combo.addItem(text, addition)
+            item_id = self.item_data[0]
+            # item: (id, name, price, category_id, category_name, description)
+            category_name = self.item_data[4]  # category_name está no índice 4
 
-                if addition[3]:
-                    # Adiciona complemento obrigatório na lista com checkbox
-                    item = QListWidgetItem(f"{addition[1]}")
-                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                    item.setCheckState(Qt.Unchecked)
-                    item.setData(Qt.UserRole, addition)
-                    self.mandatory_additions_list.addItem(item)
+            if not item_id or not category_name:
+                LOGGER.error(
+                    f"ID ou categoria inválidos: {item_id}, {category_name}")
+                raise ValueError("ID do item ou categoria inválidos")
+
+            from database.db import get_category_id
+            category_id = get_category_id(category_name)
+
+            if not category_id:
+                LOGGER.warning(f"Categoria não encontrada: {category_name}")
+                category_id = 0  # Valor padrão
+
+            # Busca todos os complementos com status de obrigatoriedade
+            all_additions_info = \
+                get_all_additions_for_item_with_mandatory_info(
+                    item_id, category_id)
+            LOGGER.debug(f"all_additions_info: {all_additions_info}")
+
+            # Monta lista de complementos para o menu e obrigatórios
+            self.additions_menu.clear()
+
+            mandatory_count = 0
+            # Limpa widgets obrigatórios existentes
+            while self.mandatory_additions_layout.count():
+                child = self.mandatory_additions_layout.takeAt(0)
+                if child.widget():
+                    child.widget().deleteLater()
+
+            for add_id, name, price, is_mandatory in all_additions_info:
+                LOGGER.debug(
+                    f"Complemento: id={add_id}, nome={name}, preco={price}, "
+                    f"obrigatorio={is_mandatory}")
+
+                # Determina se é específico ou da categoria
+                source = "specific" if is_mandatory else "category"
+
+                comp = {
+                    'id': add_id,
+                    'name': name,
+                    'price': price,
+                    'source': source,
+                    'is_mandatory': is_mandatory
+                }
+
+                if not is_mandatory:
+                    # Adiciona apenas complementos não obrigatórios ao menu
+                    text = f"{name} - R$ {price:.2f}"
+                    action = QAction(text, self)
+                    action.setData(comp)
+                    action.triggered.connect(
+                        lambda checked, c=comp: self.select_addition(c))
+                    self.additions_menu.addAction(action)
+
+                if is_mandatory:
+                    mandatory_count += 1
+                    # Cria checkbox e label para complemento obrigatório
+                    row_widget = QWidget()
+                    row_layout = QHBoxLayout()
+                    row_layout.setContentsMargins(0, 0, 0, 0)
+                    row_layout.setSpacing(4)
+
+                    checkbox = QCheckBox()
+                    checkbox.setObjectName(f"mandatory_{add_id}")
+                    checkbox.setProperty("addition_data", comp)
+                    checkbox.setChecked(False)
+                    # Permite foco para navegação por teclado
+                    checkbox.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+
+                    # Conecta eventos de teclado
+                    checkbox.keyPressEvent = lambda event, cb=checkbox: \
+                        self.checkbox_key_handler(event, cb)
+
+                    label = QLabel(f"{name} - R$ {price:.2f}")
+                    label.setStyleSheet("font-size: 11px;")
+                    # Permite clicar no label para marcar/desmarcar checkbox
+                    label.mousePressEvent = lambda event, cb=checkbox: \
+                        cb.setChecked(not cb.isChecked())
+
+                    row_layout.addWidget(checkbox)
+                    row_layout.addWidget(label)
+                    row_layout.addStretch()
+                    row_widget.setLayout(row_layout)
+                    self.mandatory_additions_layout.addWidget(row_widget)
+
+            LOGGER.debug(f"Total mandatory additions added: {mandatory_count}")
+            if mandatory_count == 0:
+                no_mandatory_label = QLabel("Nenhum complemento obrigatório")
+                no_mandatory_label.setStyleSheet(
+                    "font-size: 10px; color: #666;")
+                self.mandatory_additions_layout.addWidget(no_mandatory_label)
 
         except Exception as e:
             LOGGER.error(f"Erro ao carregar complementos: {e}")
+            QMessageBox.critical(self, "Erro",
+                                 f"Erro ao carregar complementos: {str(e)}")
+            # Adiciona fallback para evitar crash
+            if self.mandatory_additions_layout.count() == 0:
+                no_items_label = QLabel("Erro ao carregar complementos")
+                no_items_label.setStyleSheet("color: red; font-size: 10px;")
+                self.mandatory_additions_layout.addWidget(no_items_label)
+
+    def select_addition(self, addition_data):
+        """Seleciona complemento do menu e atualiza botão."""
+        self.selected_addition_data = addition_data
+        self.additions_button.setText(
+            f"{addition_data['name']} - R$ {addition_data['price']:.2f}")
+        # Foca na quantidade do complemento ao selecionar
+        self.addition_qty.setFocus()
+
+    def addition_qty_key_handler(self, event):
+        """Manipula eventos de teclado na quantidade de complemento."""
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            # Enter adiciona o complemento diretamente
+            self.add_addition_to_list()
+            event.accept()
+        else:
+            QSpinBox.keyPressEvent(self.addition_qty, event)
+
+    def checkbox_key_handler(self, event, checkbox):
+        """Manipula eventos de teclado nos checkboxes."""
+        if event.key() == Qt.Key.Key_Space:
+            # Espaço marca/desmarca o checkbox
+            checkbox.setChecked(not checkbox.isChecked())
+            event.accept()
+        elif (event.key() == Qt.Key.Key_Return or
+              event.key() == Qt.Key.Key_Enter):
+            # Enter também marca/desmarca o checkbox
+            checkbox.setChecked(not checkbox.isChecked())
+            event.accept()
+        elif event.key() == Qt.Key.Key_Tab:
+            # Tab navega para o próximo checkbox
+            self.focus_next_checkbox(checkbox)
+            event.accept()
+        elif event.key() == Qt.Key.Key_Backtab:
+            # Shift+Tab navega para o checkbox anterior
+            self.focus_previous_checkbox(checkbox)
+            event.accept()
+        elif event.key() == Qt.Key.Key_Down:
+            # Seta para baixo: próximo checkbox ou QPushButton/QMenu se último
+            checkboxes = self.get_all_checkboxes()
+            if len(checkboxes) == 1 or self.is_last_checkbox(checkbox):
+                self.additions_button.setFocus()
+                # Abre o QMenu na posição do botão
+                pos = self.additions_button.mapToGlobal(
+                    self.additions_button.rect().bottomLeft())
+                self.additions_menu.popup(pos)
+            else:
+                self.focus_next_checkbox(checkbox)
+            event.accept()
+        elif event.key() == Qt.Key.Key_Up:
+            # Seta para cima: checkbox anterior ou campo quantidade se primeiro
+            if self.is_first_checkbox(checkbox):
+                self.item_qty.setFocus()
+            else:
+                self.focus_previous_checkbox(checkbox)
+            event.accept()
+        else:
+            # Para outras teclas, usa o comportamento padrão
+            QCheckBox.keyPressEvent(checkbox, event)
+
+    def focus_next_checkbox(self, current_checkbox):
+        """Foca no próximo checkbox da lista."""
+        checkboxes = self.get_all_checkboxes()
+        if not checkboxes:
+            return
+
+        try:
+            current_index = checkboxes.index(current_checkbox)
+            next_index = (current_index + 1) % len(checkboxes)
+            checkboxes[next_index].setFocus()
+        except ValueError:
+            # Se não encontrar o checkbox atual, foca no primeiro
+            if checkboxes:
+                checkboxes[0].setFocus()
+
+    def focus_previous_checkbox(self, current_checkbox):
+        """Foca no checkbox anterior da lista."""
+        checkboxes = self.get_all_checkboxes()
+        if not checkboxes:
+            return
+
+        try:
+            current_index = checkboxes.index(current_checkbox)
+            previous_index = (current_index - 1) % len(checkboxes)
+            checkboxes[previous_index].setFocus()
+        except ValueError:
+            # Se não encontrar o checkbox atual, foca no último
+            if checkboxes:
+                checkboxes[-1].setFocus()
+
+    def get_all_checkboxes(self):
+        """Retorna lista de todos os checkboxes obrigatórios."""
+        checkboxes = []
+        for i in range(self.mandatory_additions_layout.count()):
+            item = self.mandatory_additions_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                checkbox = widget.findChild(QCheckBox)
+                if checkbox:
+                    checkboxes.append(checkbox)
+        return checkboxes
+
+    def is_first_checkbox(self, checkbox):
+        """Verifica se é o primeiro checkbox."""
+        checkboxes = self.get_all_checkboxes()
+        return checkboxes and checkboxes[0] == checkbox
+
+    def is_last_checkbox(self, checkbox):
+        """Verifica se é o último checkbox."""
+        checkboxes = self.get_all_checkboxes()
+        return checkboxes and checkboxes[-1] == checkbox
+
+    def button_key_handler(self, event):
+        """Manipula eventos de teclado no QPushButton de complementos."""
+        if event.key() == Qt.Key.Key_Up:
+            # Seta para cima: vai para o último checkbox se existir
+            checkboxes = self.get_all_checkboxes()
+            if checkboxes:
+                checkboxes[-1].setFocus()
+            else:
+                # Se não há checkboxes, vai para quantidade
+                self.item_qty.setFocus()
+            event.accept()
+        elif event.key() == Qt.Key.Key_Down:
+            # Seta para baixo: vai para o campo de quantidade de complemento
+            self.addition_qty.setFocus()
+            event.accept()
+        else:
+            # Para outras teclas, usa o comportamento padrão
+            QPushButton.keyPressEvent(self.additions_button, event)
+
+    def focus_first_checkbox(self):
+        """Foca no primeiro checkbox disponível."""
+        checkboxes = self.get_all_checkboxes()
+        if checkboxes:
+            checkboxes[0].setFocus()
+
+    def handle_enter_key(self):
+        """Manipula a tecla Enter conforme o controle focado."""
+        focused_widget = QApplication.focusWidget()
+
+        # Se o foco está no campo de quantidade do item, vai para os checkboxes
+        if focused_widget == self.item_qty:
+            self.focus_first_checkbox()
+        # Se o foco está em um checkbox, marca/desmarca ele
+        elif focused_widget in self.get_all_checkboxes():
+            focused_widget.setChecked(not focused_widget.isChecked())
+        # Se não há foco específico ou está em outro lugar, adiciona ao pedido
+        elif not self.is_in_navigation_area(focused_widget):
+            self.add_to_order()
+
+    def qty_key_handler(self, event):
+        """Manipula eventos de teclado no campo de quantidade do item."""
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            # Enter vai para os checkboxes obrigatórios
+            self.focus_first_checkbox()
+            event.accept()
+            return  # Retorna para evitar processamento adicional
+        else:
+            # Para outras teclas, usa o comportamento padrão
+            QSpinBox.keyPressEvent(self.item_qty, event)
+
+    def is_in_navigation_area(self, widget):
+        """Verifica se o widget está na área de navegação especial."""
+        if not widget:
+            return False
+
+        # Verifica se é o campo de quantidade do item
+        if widget == self.item_qty:
+            return True
+
+        # Verifica se é um checkbox obrigatório
+        checkboxes = self.get_all_checkboxes()
+        if widget in checkboxes:
+            return True
+
+        # Verifica se é o QPushButton de complementos
+        if widget == self.additions_button:
+            return True
+
+        return False
 
     def add_addition_to_list(self):
         """Adiciona complemento à lista."""
-        current_index = self.additions_combo.currentIndex()
-        if current_index <= 0:  # Não selecionou complemento válido
+        # Verifica se algum complemento foi selecionado
+        if not hasattr(self, 'selected_addition_data') or \
+           not self.selected_addition_data:
             return
 
-        addition_data = self.additions_combo.itemData(current_index)
+        addition_data = self.selected_addition_data
         qty = self.addition_qty.value()
 
         # Adiciona à lista visual
-        text = f"{qty}x {addition_data[1]} - R$ {addition_data[2]*qty:.2f}"
+        text = f"{qty}x {addition_data['name']} - " \
+               f"R$ {addition_data['price']*qty:.2f}"
         item = QListWidgetItem(text)
         item.setData(Qt.ItemDataRole.UserRole, {
-            'id': addition_data[0],
-            'name': addition_data[1],
-            'price': addition_data[2],
+            'id': addition_data['id'],
+            'name': addition_data['name'],
+            'price': addition_data['price'],
             'qty': qty,
-            'total': addition_data[2] * qty
+            'total': addition_data['price'] * qty
         })
         self.selected_additions.addItem(item)
 
         # Adiciona aos dados do diálogo
         self.selected_additions_data.append({
-            'id': addition_data[0],
-            'name': addition_data[1],
-            'price': addition_data[2],
+            'id': addition_data['id'],
+            'name': addition_data['name'],
+            'price': addition_data['price'],
             'qty': qty,
-            'total': addition_data[2] * qty
+            'total': addition_data['price'] * qty
         })
 
         # Atualiza total
         self.update_total_price()
 
         # Reset campos
-        self.additions_combo.setCurrentIndex(0)
+        self.additions_button.setText("Selecione um complemento...")
+        self.selected_addition_data = None
         self.addition_qty.setValue(1)
 
+        # Volta o foco para o QMenu (abre novamente)
+        pos = self.additions_button.mapToGlobal(
+            self.additions_button.rect().bottomLeft())
+        self.additions_menu.popup(pos)
+
     def update_total_price(self):
-        """Atualiza o preço total."""
+        """Atualiza o preço total considerando a quantidade do item."""
         base_price = self.item_data[2]
+        item_qty = self.item_qty.value()
         additions_total = sum(add['total']
                               for add in self.selected_additions_data)
-        total = base_price + additions_total
+        total = (base_price * item_qty) + additions_total
         self.total_label.setText(f"Total: R$ {total:.2f}")
+
+    def get_selected_mandatory_additions(self):
+        """Retorna lista dos complementos obrigatórios selecionados."""
+        selected = []
+        try:
+            for i in range(self.mandatory_additions_layout.count()):
+                item = self.mandatory_additions_layout.itemAt(i)
+                if item and item.widget():
+                    widget = item.widget()
+                    checkbox = widget.findChild(QCheckBox)
+                    if checkbox and checkbox.isChecked():
+                        addition_data = checkbox.property("addition_data")
+                        if addition_data:
+                            selected.append(addition_data)
+        except Exception as e:
+            LOGGER.error(f"Erro ao obter complementos obrigatórios: {e}")
+        return selected
 
     def add_to_order(self):
         """Adiciona item ao pedido."""
-        # Monta dados do item completo
-        item_complete = {
-            'item_data': self.item_data,
-            'additions': self.selected_additions_data.copy(),
-            'observations': self.observations.toPlainText().strip(),
-            'total': self.calculate_total(),
-            'qty': self.item_qty.value()
-        }
+        try:
+            # Monta dados do item completo
+            item_complete = {
+                'item_data': self.item_data,
+                'additions': self.selected_additions_data.copy(),
+                'mandatory_additions': self.get_selected_mandatory_additions(),
+                'observations': self.observations.toPlainText().strip(),
+                'total': self.calculate_total(),
+                'qty': self.item_qty.value()
+            }
 
-        # Emite sinal com os dados
-        self.item_added.emit(item_complete)
+            # Emite sinal com os dados
+            self.item_added.emit(item_complete)
 
-        # Mostra confirmação
-        self.show_confirmation(item_complete['qty'])
-
-        # Fecha o diálogo
-        self.accept()
+            # Fecha o widget
+            self.close()
+        except Exception as e:
+            LOGGER.error(f"Erro ao adicionar item ao pedido: {e}")
+            QMessageBox.critical(self, "Erro",
+                                 f"Erro ao adicionar item: {str(e)}")
 
     def calculate_total(self):
         """Calcula o total do item com complementos."""
@@ -281,3 +668,11 @@ class AddItemDialog(QDialog):
         msg += f"Total: R$ {self.calculate_total():.2f}"
 
         QMessageBox.information(self, "Item Adicionado", msg)
+
+    def closeEvent(self, event):
+        """Ao fechar o widget, foca no campo de busca de item."""
+        parent = self.parent()
+        if (parent and hasattr(parent, 'item_search')
+                and hasattr(parent.item_search, 'item_lineedit')):
+            parent.item_search.item_lineedit.setFocus()
+        super().closeEvent(event)
