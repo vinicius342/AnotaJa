@@ -2,12 +2,13 @@
 Diálogo para adicionar itens ao pedido com complementos.
 """
 
-from PySide6.QtCore import Qt, Signal, QEventLoop
+from PySide6.QtCore import QEventLoop, Qt, Signal
 from PySide6.QtGui import QAction, QFont, QIcon, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QCheckBox, QGroupBox, QHBoxLayout,
-                               QLabel, QListWidget, QListWidgetItem, QMenu,
-                               QMessageBox, QPushButton, QScrollArea, QSpinBox,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QGroupBox,
+                               QHBoxLayout, QLabel, QListWidget,
+                               QListWidgetItem, QMenu, QMessageBox,
+                               QPushButton, QScrollArea, QSpinBox, QTextEdit,
+                               QVBoxLayout, QWidget)
 
 from database.db import get_all_additions_for_item_with_mandatory_info
 from utils.log_utils import get_logger
@@ -15,36 +16,17 @@ from utils.log_utils import get_logger
 LOGGER = get_logger(__name__)
 
 
-class AddItemDialog(QWidget):
-    def exec(self):
-        """Simula o comportamento modal de QDialog para QWidget."""
-        self._accepted = False
-        self.show()
-        loop = QEventLoop()
-        self.destroyed.connect(loop.quit)
-        loop.exec()
-        return self._accepted
-
-    def accept(self):
-        self._accepted = True
-        self.close()
-
-    def reject(self):
-        self._accepted = False
-        self.close()
-    """Widget para adicionar item ao pedido com complementos."""
+class AddItemDialog(QDialog):
+    """Diálogo para adicionar item ao pedido com complementos."""
 
     item_added = Signal(dict)  # Sinal emitido quando item é adicionado
+    dialog_closed = Signal()  # Sinal emitido ao fechar o diálogo
 
-    def __init__(self, item_data, parent=None):
+    def __init__(self, item_data, parent=None, order_screen=None):
         super().__init__(parent)
         try:
-            # Configura como janela independente sem botão minimizar
-            self.setWindowFlags(
-                Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
-            self.setWindowModality(Qt.ApplicationModal)
-
             self.item_data = item_data
+            self.order_screen = order_screen  # Referência para order_screen
             self.selected_additions_data = []
             self.setup_ui()
             self.load_additions()
@@ -59,14 +41,21 @@ class AddItemDialog(QWidget):
             self.close()  # Fecha o widget em caso de erro
 
     def setup_ui(self):
-        """Configura a interface do widget."""
+        """Configura a interface do diálogo."""
         self.setWindowTitle("Adicionar Item")
-        self.resize(500, 400)
 
-        # Posiciona o widget
-        if self.parent():
-            parent_geometry = self.parent().geometry()
-            self.move(parent_geometry.x() + 50, parent_geometry.y() + 50)
+        # Configura flags para aparecer na barra de tarefas
+        flags = (Qt.WindowType.Dialog |
+                 Qt.WindowType.WindowSystemMenuHint |
+                 Qt.WindowType.WindowTitleHint |
+                 Qt.WindowType.WindowCloseButtonHint |
+                 Qt.WindowType.WindowMinMaxButtonsHint)
+        self.setWindowFlags(flags)
+
+        # Força o diálogo a aparecer na barra de tarefas
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+
+        self.resize(500, 400)
 
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -96,7 +85,7 @@ class AddItemDialog(QWidget):
         """Configura os atalhos de teclado."""
         # Escape para cancelar
         escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
-        escape_shortcut.activated.connect(self.close)
+        escape_shortcut.activated.connect(self.reject)
 
         # Ctrl+Enter para adicionar o item ao pedido
         add_item_shortcut = QShortcut(QKeySequence("Ctrl+Return"), self)
@@ -238,17 +227,14 @@ class AddItemDialog(QWidget):
     def setup_total_section(self, layout):
         """Configura a seção do valor total."""
         self.total_label = QLabel(f"Total: R$ {self.item_data[2]:.2f}")
-        self.total_label.setStyleSheet(
-            "font-weight: bold; font-size: 16px; color: #2e7d32;"
-        )
         layout.addWidget(self.total_label)
 
     def setup_buttons(self, layout):
-        """Configura os botões do widget."""
+        """Configura os botões do diálogo."""
         buttons_layout = QHBoxLayout()
 
         cancel_btn = QPushButton("Cancelar")
-        cancel_btn.clicked.connect(self.close)
+        cancel_btn.clicked.connect(self.reject)
         buttons_layout.addWidget(cancel_btn)
 
         add_btn = QPushButton("Adicionar ao Pedido [Ctrl+Enter]")
@@ -640,8 +626,8 @@ class AddItemDialog(QWidget):
             # Emite sinal com os dados
             self.item_added.emit(item_complete)
 
-            # Fecha o widget
-            self.close()
+            # Fecha o diálogo
+            self.accept()
         except Exception as e:
             LOGGER.error(f"Erro ao adicionar item ao pedido: {e}")
             QMessageBox.critical(self, "Erro",
@@ -653,6 +639,33 @@ class AddItemDialog(QWidget):
         additions_total = sum(add['total']
                               for add in self.selected_additions_data)
         return base_price + additions_total
+
+    def accept(self):
+        """Sobrescreve accept para garantir que o sinal seja emitido."""
+        self.clear_item_search_and_focus()
+        self.dialog_closed.emit()
+        super().accept()
+
+    def reject(self):
+        """Sobrescreve reject para garantir que o sinal seja emitido."""
+        self.clear_item_search_and_focus()
+        self.dialog_closed.emit()
+        super().reject()
+
+    def clear_item_search_and_focus(self):
+        """Limpa o campo de busca e define o foco."""
+        LOGGER.info("[AddItemDialog] clear_item_search_and_focus chamado")
+        target_screen = (self.order_screen if self.order_screen
+                         else self.parent())
+
+        if (target_screen and hasattr(target_screen, 'item_search')
+                and hasattr(target_screen.item_search, 'item_lineedit')):
+            LOGGER.info("[AddItemDialog] Limpando search e definindo foco")
+            target_screen.item_search.clear_selection()
+            target_screen.item_search.item_lineedit.setFocus()
+        else:
+            LOGGER.warning("[AddItemDialog] target_screen ou item_search "
+                           "não encontrado")
 
     def show_confirmation(self, qty=1):
         """Mostra mensagem de confirmação."""
@@ -670,9 +683,9 @@ class AddItemDialog(QWidget):
         QMessageBox.information(self, "Item Adicionado", msg)
 
     def closeEvent(self, event):
-        """Ao fechar o widget, foca no campo de busca de item."""
-        parent = self.parent()
-        if (parent and hasattr(parent, 'item_search')
-                and hasattr(parent.item_search, 'item_lineedit')):
-            parent.item_search.item_lineedit.setFocus()
+        """Ao fechar o diálogo, foca no campo de busca de item."""
+        # Os métodos accept/reject já cuidam da limpeza,
+        # mas garantimos aqui para outros casos de fechamento
+        self.clear_item_search_and_focus()
+        self.dialog_closed.emit()
         super().closeEvent(event)

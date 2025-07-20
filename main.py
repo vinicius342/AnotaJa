@@ -241,9 +241,18 @@ if __name__ == "__main__":
     LOGGER.info('Aplicação iniciada')
 
     app = QApplication(sys.argv)
-
     app.setStyleSheet(STYLE)
+
+    # Força foco na aplicação
+    app.setQuitOnLastWindowClosed(True)
+
     window = MainWindow()
     window.showMaximized()
+
+    # Força ativação da janela e foco
+    window.raise_()
+    window.activateWindow()
+    app.processEvents()  # Processa eventos pendentes
+
     LOGGER.info('Janela principal exibida')
     sys.exit(app.exec())

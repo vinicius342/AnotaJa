@@ -2,12 +2,12 @@
 Tela de pedidos - versão refatorada e simplificada.
 """
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QIcon
-from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout,
-                               QHeaderView, QLabel, QMenu, QMessageBox,
-                               QPushButton, QTableWidget, QTableWidgetItem,
-                               QTextEdit, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QHeaderView,
+                               QLabel, QMenu, QMessageBox, QPushButton,
+                               QTableWidget, QTableWidgetItem, QTextEdit,
+                               QVBoxLayout, QWidget)
 
 from ui.add_item_dialog import AddItemDialog
 from ui.widgets.search_widgets import CustomerSearchWidget, ItemSearchWidget
@@ -25,6 +25,9 @@ class OrderScreen(QWidget):
         self.selected_customer = None
         self.order_items = []
         self.customers = customers if customers is not None else []
+        self._editing_dialog = None  # Controla múltiplas aberturas de diálogos
+        self._last_edit_time = {}  # Controla tempo de último clique por botão
+
         LOGGER.info(
             f"Carregando {len(self.customers)} clientes na tela de pedidos"
         )
@@ -157,16 +160,16 @@ class OrderScreen(QWidget):
         """Configura a tabela de itens do pedido."""
         self.order_table = QTableWidget(0, 4)
         self.order_table.setHorizontalHeaderLabels([
-            "Qtd", "Nome", "Categoria", "Editar"
+            "Qtd", "Nome", "Categoria", "Ações"
         ])
         header = self.order_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.order_table.setMaximumHeight(200)
-        # Define largura menor para a coluna 'Ver'
-        self.order_table.setColumnWidth(3, 60)
+        # Define largura para a coluna 'Ações'
+        self.order_table.setColumnWidth(3, 80)
 
         # Remove a numeração da linha (vertical header)
         self.order_table.verticalHeader().setVisible(False)
@@ -174,6 +177,9 @@ class OrderScreen(QWidget):
         # Remove any custom border style to restore default borders
         self.order_table.setStyleSheet(
             "QTableWidget { border: 1px solid #bbb; }")
+
+        # Conecta clique duplo para editar item
+        self.order_table.cellDoubleClicked.connect(self.on_cell_double_clicked)
 
         # Habilita menu de contexto personalizado
         self.order_table.setContextMenuPolicy(
@@ -184,6 +190,13 @@ class OrderScreen(QWidget):
         )
 
         layout.addWidget(self.order_table)
+
+    def on_cell_double_clicked(self, row, column):
+        """Trata clique duplo na célula da tabela."""
+        LOGGER.info(
+            f"[DOUBLE_CLICK] Clique duplo na row {row}, column {column}")
+        if row < len(self.order_items):
+            self.edit_item(row)
 
     def setup_action_buttons(self, layout):
         """Substitui o botão de adicionar item por um campo de valor total."""
@@ -264,58 +277,106 @@ class OrderScreen(QWidget):
 
     def open_add_item_modal(self, item_data):
         """Abre modal para adicionar item com complementos e limpa campo ao fechar/cancelar/adicionar."""
-        dialog = AddItemDialog(item_data, self)
+        # Cria dialog sem parent para aparecer na barra de tarefas
+        dialog = AddItemDialog(item_data, None, self)
         dialog.item_added.connect(self.add_item_to_order)
+        dialog.dialog_closed.connect(self.on_add_item_dialog_closed)
+
+        # Posiciona o diálogo em relação à janela principal
+        if self.parent():
+            parent_geometry = self.parent().geometry()
+            dialog.move(parent_geometry.x() + 50, parent_geometry.y() + 50)
+
         dialog.exec()
-        # Limpa o campo de busca de item e o estado do widget sempre após fechar o diálogo
-        if hasattr(self, 'item_search') and self.item_search:
-            self.item_search.clear_selection()
-            if hasattr(self.item_search, 'item_lineedit'):
-                self.item_search.item_lineedit.setFocus()
+
+    def on_add_item_dialog_closed(self):
+        LOGGER.info("[DIALOG_CLOSED] Iniciando callback de fechamento")
+
+        try:
+            if hasattr(self, 'item_search') and self.item_search:
+                LOGGER.info("[DIALOG_CLOSED] item_search existe")
+
+                # Testa chamar clear_selection de forma mais segura
+                try:
+                    LOGGER.info("[DIALOG_CLOSED] Chamando clear_selection()")
+                    self.item_search.clear_selection()
+                    LOGGER.info("[DIALOG_CLOSED] clear_selection() completado")
+                except Exception as clear_error:
+                    LOGGER.error(
+                        f"[DIALOG_CLOSED] ERRO em clear_selection: {clear_error}")
+                    # Continua sem quebrar se clear_selection falhar
+
+                if hasattr(self.item_search, 'item_lineedit'):
+                    LOGGER.info("[DIALOG_CLOSED] Definindo foco no lineedit")
+                    self.item_search.item_lineedit.setFocus()
+                    LOGGER.info("[DIALOG_CLOSED] Foco definido")
+                else:
+                    LOGGER.warning("[DIALOG_CLOSED] item_lineedit não existe")
+            else:
+                LOGGER.warning("[DIALOG_CLOSED] item_search não existe")
+
+            LOGGER.info("[DIALOG_CLOSED] Callback concluído com sucesso")
+
+        except Exception as e:
+            LOGGER.error(f"[DIALOG_CLOSED] ERRO: {str(e)}")
+            import traceback
+            LOGGER.error(traceback.format_exc())
+            # Não re-propagar a exceção para evitar crash
 
     def add_item_to_order(self, item_complete):
         """Adiciona item completo ao pedido."""
-        row = self.order_table.rowCount()
-        self.order_table.insertRow(row)
+        LOGGER.info("[ADD_ITEM] Adicionando novo item à ordem")
 
-        # Dados na tabela
-        qtd = item_complete.get('qty', 1)
-        qtd_item = QTableWidgetItem(f"{qtd}x")
-        nome_item = QTableWidgetItem(item_complete['item_data'][1])
-        categoria_item = QTableWidgetItem(item_complete['item_data'][4])
+        try:
+            row = self.order_table.rowCount()
+            self.order_table.insertRow(row)
+            LOGGER.info(f"[ADD_ITEM] Nova row criada: {row}")
 
-        # Botão de editar (ícone lápis local ou padrão) com tamanho maior
-        edit_btn = QPushButton()
-        edit_btn.setToolTip("Ver detalhes do item")
-        import os
-        icon_path = os.path.join(
-            os.path.dirname(__file__), "icons", "dots.svg")
-        if os.path.exists(icon_path):
-            edit_btn.setIcon(QIcon(icon_path))
-        else:
-            from PySide6.QtWidgets import QStyle
-            edit_btn.setIcon(self.style().standardIcon(
-                QStyle.StandardPixmap.SP_FileDialogDetailedView))
-        edit_btn.setToolTip("Editar")
-        edit_btn.setIconSize(QSize(24, 24))
-        edit_btn.setStyleSheet(
-            'margin: 0; padding: 0; width: 40px;')
-        edit_btn.clicked.connect(lambda: self.edit_item(row))
+            # Dados na tabela
+            qtd = item_complete.get('qty', 1)
+            qtd_item = QTableWidgetItem(f"{qtd}x")
+            nome_item = QTableWidgetItem(item_complete['item_data'][1])
+            categoria_item = QTableWidgetItem(item_complete['item_data'][4])
 
-        self.order_table.setItem(row, 0, qtd_item)
-        self.order_table.setItem(row, 1, nome_item)
-        self.order_table.setItem(row, 2, categoria_item)
-        self.order_table.setCellWidget(row, 3, edit_btn)
+            # Item de ação como texto simples (sem botão widget)
+            action_item = QTableWidgetItem("🖊️ Editar")
+            action_item.setToolTip("Clique duplo para editar este item")
 
-        # Armazena dados completos do item
-        self.order_items.append(item_complete)
+            # Armazena dados completos do item
+            self.order_items.append(item_complete)
+            LOGGER.info(f"[ADD_ITEM] Item data armazenado para row {row}")
 
-        # Atualiza lista de sugestões de itens
-        if hasattr(self, 'item_search') and self.item_search:
-            self.item_search.load_items()
+            # Insere os itens na tabela (SEM botões widgets)
+            self.order_table.setItem(row, 0, qtd_item)
+            self.order_table.setItem(row, 1, nome_item)
+            self.order_table.setItem(row, 2, categoria_item)
+            self.order_table.setItem(row, 3, action_item)
+            LOGGER.info(f"[ADD_ITEM] Items inseridos na tabela row {row}")
 
-        # Atualiza o valor total
-        self.update_total_label()
+            # Atualiza lista de sugestões de itens com proteção
+            LOGGER.info("[ADD_ITEM] Iniciando atualização de sugestões")
+            if hasattr(self, 'item_search') and self.item_search:
+                try:
+                    # Temporariamente desconecta sinais para evitar problemas
+                    self.item_search.blockSignals(True)
+                    self.item_search.load_items()
+                    self.item_search.blockSignals(False)
+                    LOGGER.info("[ADD_ITEM] Lista de sugestões atualizada")
+                except Exception as e:
+                    LOGGER.error(
+                        f"[ADD_ITEM] Erro ao atualizar sugestões: {e}")
+                    # Reconecta sinais mesmo em caso de erro
+                    self.item_search.blockSignals(False)
+
+            # Atualiza o valor total
+            self.update_total_label()
+            LOGGER.info(f"[ADD_ITEM] Item adicionado com sucesso na row {row}")
+
+        except Exception as e:
+            LOGGER.error(f"[ADD_ITEM] ERRO ao adicionar item: {str(e)}")
+            import traceback
+            LOGGER.error(traceback.format_exc())
+            raise
 
     def add_item(self):
         """Adiciona um item à tabela de pedido (exemplo)."""
@@ -332,27 +393,12 @@ class OrderScreen(QWidget):
         qtd_item = QTableWidgetItem("2x")
         nome_item = QTableWidgetItem("X-Burguer")
         categoria_item = QTableWidgetItem("Lanche")
-
-        # Botão de editar padronizado
-        edit_btn = QPushButton()
-        icon_path = os.path.join(os.path.dirname(
-            __file__), "icons", "pencil.svg")
-        if os.path.exists(icon_path):
-            edit_btn.setIcon(QIcon(icon_path))
-        else:
-            from PySide6.QtWidgets import QStyle
-            edit_btn.setIcon(self.style().standardIcon(
-                QStyle.StandardPixmap.SP_FileDialogDetailedView))
-        edit_btn.setToolTip("Editar")
-        edit_btn.setIconSize(QSize(18, 18))
-        edit_btn.setStyleSheet(
-            "QPushButton { border: none; background: transparent; color: white; background-color: #2a7; }")
-        edit_btn.clicked.connect(lambda: self.edit_item(row))
+        action_item = QTableWidgetItem("🖊️ Editar")
 
         self.order_table.setItem(row, 0, qtd_item)
         self.order_table.setItem(row, 1, nome_item)
         self.order_table.setItem(row, 2, categoria_item)
-        self.order_table.setCellWidget(row, 3, edit_btn)
+        self.order_table.setItem(row, 3, action_item)
 
         # Atualiza lista de sugestões de itens
         if hasattr(self, 'item_search') and self.item_search:
@@ -368,6 +414,8 @@ class OrderScreen(QWidget):
 
         # Desabilita o campo de item ao limpar o pedido
         self.item_search.item_lineedit.setEnabled(False)
+        # Zera o total
+        self.total_label.setText("Total: R$ 0,00")
 
     def finalize_order(self):
         """Finaliza o pedido."""
@@ -383,15 +431,34 @@ class OrderScreen(QWidget):
             )
             return
 
-        # Implementar lógica para salvar o pedido
-        QMessageBox.information(
-            self, "Sucesso",
-            f"Pedido finalizado para {self.selected_customer['name']}!\n"
-            f"Total de itens: {self.order_table.rowCount()}"
-        )
+        # Calcula o total atual
+        total = 0.0
+        for item in self.order_items:
+            qtd = item.get('qty', 1)
+            preco = item['item_data'][2] if len(item['item_data']) > 2 else 0.0
+            total += qtd * preco
+            # Soma complementos se existirem
+            for add in item.get('additions', []):
+                add_qtd = add.get('qty', 1)
+                add_preco = add.get('price', 0.0)
+                total += add_qtd * add_preco
 
-        # Limpa o pedido após finalizar
-        self.clear_order()
+        # Abre o modal de finalização
+        from ui.finalize_order_dialog import FinalizeOrderDialog
+        dialog = FinalizeOrderDialog(
+            self.selected_customer, self.order_items, total, None)
+
+        if dialog.exec():
+            # Pedido finalizado com sucesso
+            customer_name = self.selected_customer.get('name', '')
+            QMessageBox.information(
+                self, "Sucesso",
+                f"Pedido finalizado para {customer_name}!\n"
+                f"Total: R$ {total:,.2f}".replace(
+                    ",", "X").replace(".", ",").replace("X", ".")
+            )
+            # Limpa o pedido após finalizar
+            self.clear_order()
 
     def show_item_details(self, row):
         """Mostra diálogo com detalhes do item."""
@@ -505,56 +572,199 @@ class OrderScreen(QWidget):
 
     def edit_item(self, row, dialog=None):
         """Edita um item do pedido."""
+        LOGGER.info(f"[EDIT_ITEM] Iniciando edit_item para row={row}")
+
         if row >= len(self.order_items):
+            LOGGER.warning(f"[EDIT_ITEM] Row {row} inválido. "
+                           f"Total items: {len(self.order_items)}")
             return
 
-        self.show_item_details(row)
+        # Previne múltiplas aberturas de diálogos de edição
+        if hasattr(self, '_editing_dialog') and self._editing_dialog:
+            LOGGER.warning(f"[EDIT_ITEM] Diálogo já está aberto: "
+                           f"{self._editing_dialog}")
+            return
 
-        if dialog:
-            dialog.accept()
+        # Proteção contra cliques muito rápidos (debounce)
+        import time
+        current_time = time.time()
+        if row in self._last_edit_time:
+            time_diff = current_time - self._last_edit_time[row]
+            if time_diff < 0.5:  # 500ms
+                LOGGER.warning(f"[EDIT_ITEM] Clique muito rápido. "
+                               f"Diferença: {time_diff:.3f}s")
+                return
+        self._last_edit_time[row] = current_time
+        LOGGER.info("[EDIT_ITEM] Debounce ok. Continuando com edição.")
+
+        try:
+            LOGGER.info("[EDIT_ITEM] Iniciando bloco try")
+            # Obtém dados do item atual
+            item_data = self.order_items[row]['item_data']
+            item_name = item_data[1] if len(item_data) > 1 else 'N/A'
+            LOGGER.info(f"[EDIT_ITEM] item_data obtido: {item_name}")
+
+            # Cria o AddItemDialog pré-preenchido
+            from ui.add_item_dialog import AddItemDialog
+            LOGGER.info("[EDIT_ITEM] Importando AddItemDialog")
+
+            edit_dialog = AddItemDialog(item_data, None, self)
+            LOGGER.info(f"[EDIT_ITEM] AddItemDialog criado: {edit_dialog}")
+
+            self._editing_dialog = edit_dialog
+            LOGGER.info("[EDIT_ITEM] _editing_dialog definido")
+
+            # Preenche os campos do dialog com os dados atuais
+            # Exemplo: quantidade, complementos, observações
+            LOGGER.info("[EDIT_ITEM] Preenchendo campos do diálogo")
+            qty = self.order_items[row].get('qty', 1)
+            edit_dialog.item_qty.setValue(qty)
+            LOGGER.info(f"[EDIT_ITEM] Quantidade definida: {qty}")
+
+            if 'observations' in self.order_items[row]:
+                edit_dialog.observations.setText(
+                    self.order_items[row]['observations'])
+                LOGGER.info("[EDIT_ITEM] Observações preenchidas")
+            # TODO: preencher complementos se necessário
+
+            def update_item_on_save(edited_item):
+                try:
+                    LOGGER.info(f"[UPDATE_ITEM] Iniciando para row {row}")
+
+                    # Verifica se o OrderScreen ainda existe
+                    if not hasattr(self, 'order_table'):
+                        LOGGER.error("[UPDATE_ITEM] OrderScreen sem tabela")
+                        return
+
+                    # Verifica se a linha ainda existe antes de atualizar
+                    if (row < self.order_table.rowCount() and
+                            row < len(self.order_items)):
+                        LOGGER.info("[UPDATE_ITEM] Atualizando tabela")
+
+                        # Atualiza dados primeiro
+                        self.order_items[row] = edited_item
+
+                        # Depois atualiza a tabela
+                        qty_text = f"{edited_item.get('qty', 1)}x"
+                        self.order_table.setItem(
+                            row, 0, QTableWidgetItem(qty_text))
+
+                        item_name = edited_item['item_data'][1]
+                        self.order_table.setItem(
+                            row, 1, QTableWidgetItem(item_name))
+
+                        item_category = edited_item['item_data'][4]
+                        self.order_table.setItem(
+                            row, 2, QTableWidgetItem(item_category))
+
+                        self.update_total_label()
+                        LOGGER.info("[UPDATE_ITEM] Atualização concluída")
+                    else:
+                        LOGGER.warning(f"[UPDATE_ITEM] Row {row} inválido")
+
+                except Exception as e:
+                    LOGGER.error(f"[UPDATE_ITEM] ERRO: {str(e)}")
+                    import traceback
+                    LOGGER.error(traceback.format_exc())
+
+            def on_dialog_finished():
+                LOGGER.info("[DIALOG_FINISHED] Callback chamado")
+                if hasattr(self, '_editing_dialog'):
+                    self._editing_dialog = None
+                    LOGGER.info("[DIALOG_FINISHED] _editing_dialog limpo")
+
+            # Conecta sinais com Qt.UniqueConnection para evitar duplicações
+            LOGGER.info("[EDIT_ITEM] Conectando sinais")
+            edit_dialog.item_added.connect(
+                update_item_on_save, Qt.UniqueConnection)
+            edit_dialog.finished.connect(
+                on_dialog_finished, Qt.UniqueConnection)
+            LOGGER.info("[EDIT_ITEM] Sinais conectados")
+
+            LOGGER.info("[EDIT_ITEM] Executando diálogo")
+            edit_dialog.exec()
+            LOGGER.info("[EDIT_ITEM] Diálogo executado")
+
+            # Limpa referência após execução
+            self._editing_dialog = None
+            LOGGER.info("[EDIT_ITEM] _editing_dialog limpo após exec")
+
+            if dialog:
+                LOGGER.info("[EDIT_ITEM] Aceitando dialog parent")
+                dialog.accept()
+
+        except Exception as e:
+            # Em caso de erro, limpa a referência do diálogo
+            LOGGER.error(f"[EDIT_ITEM] ERRO: {str(e)}")
+            if hasattr(self, '_editing_dialog'):
+                self._editing_dialog = None
+                LOGGER.info("[EDIT_ITEM] _editing_dialog limpo após erro")
+            LOGGER.error("[EDIT_ITEM] Stack trace completo:")
+            import traceback
+            LOGGER.error(traceback.format_exc())
+            raise
 
     def show_context_menu(self, position):
         """Mostra menu de contexto ao clicar com botão direito."""
+        LOGGER.info("[CONTEXT_MENU] Menu de contexto solicitado")
+
         item = self.order_table.itemAt(position)
         if item is None:
+            LOGGER.info("[CONTEXT_MENU] Nenhum item na posição, cancelando")
             return
 
         row = item.row()
+        LOGGER.info(f"[CONTEXT_MENU] Menu para row: {row}")
+
         menu = QMenu(self)
 
         # Ação editar
         edit_action = menu.addAction("Editar")
         edit_action.setIcon(QIcon.fromTheme("document-edit"))
-        edit_action.triggered.connect(lambda: self.edit_item(row))
+        LOGGER.info(f"[CONTEXT_MENU] Conectando ação editar para row {row}")
+        edit_action.triggered.connect(lambda: self.edit_item_from_context(row))
 
         # Ação excluir
         delete_action = menu.addAction("Excluir")
         delete_action.setIcon(QIcon.fromTheme("edit-delete"))
+        LOGGER.info(f"[CONTEXT_MENU] Conectando ação excluir para row {row}")
         delete_action.triggered.connect(lambda: self.delete_item(row))
 
         # Mostra o menu na posição do cursor
+        LOGGER.info("[CONTEXT_MENU] Exibindo menu")
         menu.exec(self.order_table.mapToGlobal(position))
+        LOGGER.info("[CONTEXT_MENU] Menu executado")
+
+    def edit_item_from_context(self, row):
+        """Método wrapper para chamar edit_item a partir do menu contexto."""
+        LOGGER.info(f"[CONTEXT_EDIT] Editando item via menu, row: {row}")
+        self.edit_item(row)
 
     def closeEvent(self, event):
         """Finaliza threads ao fechar o widget."""
+        LOGGER.info("[CLOSE_EVENT] Iniciando fechamento do OrderScreen")
+
         # Finaliza threads dos widgets de busca, se existirem
         if hasattr(self, 'customer_search') and self.customer_search:
+            LOGGER.info("[CLOSE_EVENT] Finalizando customer_search")
             if hasattr(self.customer_search, 'finalize_threads'):
                 self.customer_search.finalize_threads()
             self.customer_search.closeEvent(event)
 
         if hasattr(self, 'item_search') and self.item_search:
+            LOGGER.info("[CLOSE_EVENT] Finalizando item_search")
             if hasattr(self.item_search, 'finalize_threads'):
                 self.item_search.finalize_threads()
             self.item_search.closeEvent(event)
 
-        app = QApplication.instance()
-        if app:
-            app.removeEventFilter(self)
+        # Limpa diálogo de edição se ainda existir
+        if hasattr(self, '_editing_dialog') and self._editing_dialog:
+            LOGGER.info("[CLOSE_EVENT] Limpando _editing_dialog")
+            self._editing_dialog = None
+
+        LOGGER.info("[CLOSE_EVENT] Finalizando closeEvent")
         super().closeEvent(event)
 
     def __del__(self):
         """Remove event filter ao destruir o widget."""
-        app = QApplication.instance()
-        if app:
-            app.removeEventFilter(self)
+        LOGGER.info("[DEL] Destruindo OrderScreen")

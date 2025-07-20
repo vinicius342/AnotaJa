@@ -489,8 +489,12 @@ def delete_customer(customer_id):
 def get_customer_by_phone(phone):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            'SELECT id, name, phone, street, number, reference FROM customers WHERE phone = ?', (phone,))
+        cursor.execute('''
+            SELECT c.id, c.name, c.phone, c.street, c.number, c.neighborhood_id, c.reference, n.name as neighborhood_name
+            FROM customers c
+            LEFT JOIN neighborhoods n ON c.neighborhood_id = n.id
+            WHERE c.phone = ?
+        ''', (phone,))
         return cursor.fetchone()
 
 

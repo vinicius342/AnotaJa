@@ -233,6 +233,46 @@ class CustomerSearchWidget(QWidget):
         """Limpa o campo de busca e o estado do widget."""
         self.customer_lineedit.clear()
         self.hide_suggestions()
+
+    def closeEvent(self, event):
+        """Garante que a thread seja finalizada corretamente."""
+        LOGGER.info("[CustomerSearchWidget] Iniciando fechamento")
+        try:
+            # Desconecta sinais primeiro
+            if hasattr(self, 'worker') and self.worker:
+                self.worker.finished.disconnect()
+
+            # Para a thread de forma segura
+            if hasattr(self, 'thread') and self.thread:
+                if self.thread.isRunning():
+                    LOGGER.info("[CustomerSearchWidget] Parando thread...")
+                    self.thread.quit()
+                    if not self.thread.wait(3000):  # 3 segundos timeout
+                        LOGGER.warning(
+                            "[CustomerSearchWidget] Forçando parada...")
+                        self.thread.terminate()
+                        self.thread.wait(1000)
+
+            LOGGER.info("[CustomerSearchWidget] Thread finalizada")
+
+        except Exception as e:
+            LOGGER.error(f"[CustomerSearchWidget] Erro ao fechar: {e}")
+
+        super().closeEvent(event)
+
+    def finalize_threads(self):
+        """Método público para finalizar threads explicitamente."""
+        LOGGER.info("[CustomerSearchWidget] finalize_threads chamado")
+        try:
+            if hasattr(self, 'thread') and self.thread:
+                if self.thread.isRunning():
+                    self.thread.quit()
+                    self.thread.wait(2000)
+                    if self.thread.isRunning():
+                        self.thread.terminate()
+        except Exception as e:
+            LOGGER.error(
+                f"[CustomerSearchWidget] Erro ao finalizar threads: {e}")
         self.customer_data.clear()
 
     def closeEvent(self, event):
@@ -358,10 +398,11 @@ class ItemSearchWidget(QWidget):
             # item: (id, name, price, category_id, category_name, description)
             name = item[1]
             price = item[2]
+            category = item[4] if len(item) > 4 else ""
             if price and price != 0:
-                suggestion_text = f"{name} - R$ {price:.2f}"
+                suggestion_text = f"{name} - R$ {price:.2f} - {category}"
             else:
-                suggestion_text = name
+                suggestion_text = f"{name} - {category}" if category else name
             self.item_data[suggestion_text] = item
             self.suggestions_list.addItem(suggestion_text)
 
@@ -437,13 +478,98 @@ class ItemSearchWidget(QWidget):
 
     def clear_selection(self):
         """Limpa o campo de busca e o estado do widget."""
-        self.item_lineedit.clear()
-        self.hide_suggestions()
-        self.item_data.clear()
+        from utils.log_utils import get_logger
+        LOGGER = get_logger(__name__)
+        LOGGER.info("[ItemSearchWidget] clear_selection chamado")
+
+        try:
+            # Bloquear sinais durante limpeza para evitar cascatas
+            self.blockSignals(True)
+            self.item_lineedit.blockSignals(True)
+            self.suggestions_list.blockSignals(True)
+
+            # Primeiro esconde sugestões
+            if hasattr(self, 'suggestions_list') and self.suggestions_list:
+                if self.suggestions_list.isVisible():
+                    self.suggestions_list.hide()
+                    self.suggestions_list.setMaximumHeight(0)
+                    self.suggestions_list.setMinimumHeight(0)
+
+            # Limpa dados depois
+            if hasattr(self, 'item_data'):
+                self.item_data.clear()
+
+            # Por último limpa o field
+            if hasattr(self, 'item_lineedit') and self.item_lineedit:
+                self.item_lineedit.clear()
+                # Restaura estilo
+                self.item_lineedit.setStyleSheet(self.lineedit_base_style)
+
+            # Reabilita sinais
+            self.blockSignals(False)
+            self.item_lineedit.blockSignals(False)
+            self.suggestions_list.blockSignals(False)
+
+            LOGGER.info(
+                "[ItemSearchWidget] clear_selection concluído com segurança")
+
+        except Exception as e:
+            LOGGER.error(f"[ItemSearchWidget] ERRO em clear_selection: {e}")
+            # Garante que sinais sejam reabilitados mesmo em erro
+            try:
+                self.blockSignals(False)
+                self.item_lineedit.blockSignals(False) if hasattr(
+                    self, 'item_lineedit') else None
+                self.suggestions_list.blockSignals(False) if hasattr(
+                    self, 'suggestions_list') else None
+            except:
+                pass
 
     def closeEvent(self, event):
         """Garante que a thread seja finalizada corretamente."""
-        LOGGER.info("Fechando a thread do worker de busca de itens.")
-        self.thread.quit()
-        self.thread.wait()
+        LOGGER.info("[ItemSearchWidget] Iniciando fechamento")
+        try:
+            # Desconecta todos os sinais primeiro
+            if hasattr(self, 'worker') and self.worker:
+                self.worker.finished.disconnect()
+
+            # Para a thread de forma segura
+            if hasattr(self, 'thread') and self.thread:
+                if self.thread.isRunning():
+                    LOGGER.info("[ItemSearchWidget] Parando thread...")
+                    self.thread.quit()
+                    if not self.thread.wait(3000):  # 3 segundos timeout
+                        LOGGER.warning(
+                            "[ItemSearchWidget] Thread não parou, forçando...")
+                        self.thread.terminate()
+                        self.thread.wait(1000)
+
+            LOGGER.info("[ItemSearchWidget] Thread finalizada com segurança")
+
+        except Exception as e:
+            LOGGER.error(f"[ItemSearchWidget] Erro ao fechar: {e}")
+
         super().closeEvent(event)
+
+    def finalize_threads(self):
+        """Método público para finalizar threads explicitamente."""
+        LOGGER.info("[ItemSearchWidget] finalize_threads chamado")
+        try:
+            if hasattr(self, 'thread') and self.thread:
+                if self.thread.isRunning():
+                    self.thread.quit()
+                    self.thread.wait(2000)
+                    if self.thread.isRunning():
+                        self.thread.terminate()
+        except Exception as e:
+            LOGGER.error(f"[ItemSearchWidget] Erro ao finalizar threads: {e}")
+
+    def __del__(self):
+        """Destrutor para limpeza final."""
+        try:
+            if hasattr(self, 'thread') and self.thread:
+                if self.thread.isRunning():
+                    self.thread.quit()
+                    self.thread.wait(1000)
+        except:
+            pass  # Ignora erros no destrutor

@@ -88,13 +88,14 @@ class ItemAdditionsDialog(QDialog):
         if parent and hasattr(parent, 'item_search') and hasattr(parent.item_search, 'item_lineedit'):
             parent.item_search.item_lineedit.setFocus()
         super().closeEvent(event)
+
     """Diálogo para selecionar complementos específicos de um item"""
 
     def __init__(self, item_name, item_id, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Window)
+        self.setModal(False)  # NÃO modal para permitir interação simultânea
         self.setWindowTitle(f"Complementos específicos para {item_name}")
-        self.setModal(True)
         self.resize(500, 600)
         self.item_id = item_id
         self.item_name = item_name
@@ -409,13 +410,29 @@ class ItemAdditionsDialog(QDialog):
                 self.item_id, specific_addition_ids)
 
 
-class MenuEditDialogItem(QDialog):
+class MenuEditDialogItem(QWidget):
+    def exec(self):
+        """Simula comportamento modal usando QEventLoop"""
+        from PySide6.QtCore import QEventLoop
+        self._accepted = False
+        self._event_loop = QEventLoop()
+        self.show()
+        self._event_loop.exec()
+        return self._accepted
+
+    def accept(self):
+        self._accepted = True
+        self.close()
+
+    def reject(self):
+        self._accepted = False
+        self.close()
+
     def __init__(self, item, categories, additions, parent=None, item_id=None):
         super().__init__(parent)
         # Configura para aparecer na barra de tarefas com controles normais
         self.setWindowFlags(Qt.Window)
         self.setWindowTitle("Editar Item do Cardápio")
-        self.setModal(True)
         self.resize(400, 300)
 
         # Timer para o efeito de piscar
@@ -484,6 +501,11 @@ class MenuEditDialogItem(QDialog):
             self.stop_flashing()
         super().changeEvent(event)
 
+    def closeEvent(self, event):
+        if hasattr(self, '_event_loop') and self._event_loop.isRunning():
+            self._event_loop.exit()
+        super().closeEvent(event)
+
     def start_flashing(self):
         """Inicia o efeito de piscar da janela"""
         self.flash_count = 0
@@ -535,7 +557,7 @@ class MenuEditDialogItem(QDialog):
     def open_item_additions_dialog(self):
         """Abre diálogo para gerenciar complementos específicos do item"""
         if self.item_id is not None:
-            dialog = ItemAdditionsDialog(self.name, self.item_id, self)
+            dialog = ItemAdditionsDialog(self.name, self.item_id, None)
             if dialog.exec():
                 dialog.save_selections()
                 # Atualiza a visualização após salvar
