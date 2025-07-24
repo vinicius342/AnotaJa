@@ -2,7 +2,7 @@
 Modal para finalização de pedido com opções de entrega ou retirada.
 """
 
-from PySide6.QtCore import QEventLoop, Qt
+from PySide6.QtCore import QEventLoop, Qt, QThread, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel,
                                QLineEdit, QMenu, QMessageBox, QPushButton,
@@ -11,8 +11,54 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel,
 from database.db import (get_customer_by_phone, get_neighborhoods, save_order,
                          update_customer)
 from utils.log_utils import get_logger
+from utils.print_settings import (format_order_for_print, get_default_printer,
+                                  should_play_notification_sound)
 
 LOGGER = get_logger(__name__)
+
+
+class PrintThread(QThread):
+    """Thread para impressão em background."""
+    finished_signal = Signal(str)
+    error_signal = Signal(str)
+
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self.text = text
+
+    def run(self):
+        """Executa a impressão."""
+        try:
+            LOGGER.info('[PRINT_THREAD] Iniciando thread de impressão')
+            printer = get_default_printer()
+            if printer:
+                LOGGER.info(
+                    f'[PRINT_THREAD] Impressora obtida: {printer.name}')
+                LOGGER.info(
+                    f'[PRINT_THREAD] Tipo térmica: {printer.is_thermal}')
+                LOGGER.info(f'Iniciando impressão do pedido em {printer.name}')
+
+                success = printer.print(self.text)
+
+                if success:
+                    LOGGER.info(
+                        f'[PRINT_THREAD] printer.print() retornou: {success}')
+                    LOGGER.info(f'Impressão concluída em {printer.name}')
+                    self.finished_signal.emit(printer.name)
+                else:
+                    LOGGER.error(
+                        f'[PRINT_THREAD] printer.print() retornou: {success}')
+                    LOGGER.error(f'Erro na impressão em {printer.name}')
+                    error_msg = f'Erro na impressão em {printer.name}'
+                    self.error_signal.emit(error_msg)
+            else:
+                LOGGER.warning('[PRINT_THREAD] Nenhuma impressora configurada')
+                LOGGER.warning('Nenhuma impressora configurada')
+                self.error_signal.emit('Nenhuma impressora configurada')
+        except Exception as e:
+            LOGGER.error(f'[PRINT_THREAD] Exceção durante impressão: {e}')
+            LOGGER.error(f'Erro durante impressão: {e}')
+            self.error_signal.emit(f'Erro durante impressão: {str(e)}')
 
 
 class FinalizeOrderDialog(QDialog):
@@ -462,10 +508,181 @@ class FinalizeOrderDialog(QDialog):
         if not self.save_order_to_database():
             return
 
+        # Imprime o pedido
+        self.print_order()
+
+        # Toca som de notificação se configurado
+        if should_play_notification_sound():
+            try:
+                import winsound
+                winsound.Beep(1000, 200)  # Freq 1000Hz por 200ms
+            except ImportError:
+                # Se não estiver no Windows, usa print como fallback
+                print("\a")  # Bell character
+            except Exception as e:
+                LOGGER.warning(f"Erro ao tocar som de notificação: {e}")
+
         self.result = True
         if self.event_loop:
             self.event_loop.quit()
         super().accept()
+
+    def print_order(self):
+        """Imprime o pedido usando as configurações do sistema."""
+        try:
+            # Determina as observações do pedido
+            order_notes = ""
+            if self.delivery_checkbox.isChecked():
+                order_notes = "Entrega"
+                # Adiciona endereço se disponível
+                street = self.street_input.text().strip()
+                number = self.number_input.text().strip()
+                reference = self.reference_input.text().strip()
+
+                if street:
+                    address_parts = [street]
+                    if number:
+                        address_parts.append(f"nº {number}")
+                    if reference:
+                        address_parts.append(f"Ref: {reference}")
+                    order_notes += f" - {', '.join(address_parts)}"
+            elif self.pickup_checkbox.isChecked():
+                order_notes = "Retirada"
+
+            # Calcula o total com taxa de entrega se aplicável
+            total_amount = self.total_amount
+            if self.delivery_checkbox.isChecked():
+                fee = 0.0
+                neighborhoods = get_neighborhoods()
+                for n in neighborhoods:
+                    if n[0] == self.selected_neighborhood_id:
+                        fee = n[2]
+                        break
+                total_amount += fee
+
+            # Formata o pedido para impressão
+            print_text = format_order_for_print(
+                self.customer_data,
+                self.order_items,
+                total_amount,
+                order_notes
+            )
+
+            # Inicia impressão em thread separada
+            self.print_thread = PrintThread(print_text, self)
+            self.print_thread.finished_signal.connect(self.on_print_finished)
+            self.print_thread.error_signal.connect(self.on_print_error)
+            self.print_thread.start()
+
+        except Exception as e:
+            LOGGER.error(f"Erro ao preparar impressão: {e}")
+            QMessageBox.warning(
+                self, "Erro", f"Erro ao preparar impressão: {str(e)}")
+
+    def on_print_finished(self, printer_name):
+        """Callback quando a impressão é concluída."""
+        LOGGER.info(f"Impressão concluída em: {printer_name}")
+
+        # Se for salvamento em arquivo, mostra mensagem específica
+        if printer_name == "Salvar em Arquivo TXT":
+            QMessageBox.information(
+                self, "Pedido Salvo",
+                "O pedido foi salvo como arquivo TXT na pasta "
+                "'pedidos_impressos'.\nVocê pode imprimir este arquivo "
+                "posteriormente.")
+        elif "Simulando" in printer_name or "dispositivo:" in printer_name:
+            # Para impressão simulada ou em dispositivo USB
+            pass  # Não mostra mensagem adicional
+        else:
+            # Para impressão real em impressora
+            QMessageBox.information(
+                self, "Impressão Concluída",
+                f"Pedido impresso com sucesso em {printer_name}")
+
+    def on_print_error(self, error_message):
+        """Callback quando há erro na impressão."""
+        LOGGER.error(f"Erro na impressão: {error_message}")
+
+        # Verificar se é um erro de impressora não inicializada
+        if "não pôde ser inicializada" in error_message or "não foi encontrada" in error_message:
+            QMessageBox.warning(
+                self, "Problema com a Impressora",
+                f"{error_message}\n\n"
+                "Possíveis soluções:\n"
+                "• Verifique se a impressora está ligada\n"
+                "• Verifique se o cabo USB está conectado\n"
+                "• Reinicie a impressora\n"
+                "• Verifique se não há outro programa usando a impressora\n\n"
+                "Deseja salvar o pedido em arquivo TXT para imprimir depois?"
+            )
+
+            reply = QMessageBox.question(
+                self, "Salvar em Arquivo",
+                "Deseja salvar o pedido em arquivo TXT para imprimir depois?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+        else:
+            reply = QMessageBox.question(
+                self, "Erro de Impressão",
+                f"Não foi possível imprimir o pedido:\n{error_message}\n\n"
+                "Deseja salvar o pedido em arquivo TXT para imprimir depois?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Salvar como arquivo
+                from utils.printer import Printer
+                file_printer = Printer("Salvar em Arquivo TXT")
+
+                # Recalcular os dados do pedido para salvar
+                order_notes = ""
+                if self.delivery_checkbox.isChecked():
+                    order_notes = "Entrega"
+                    street = self.street_input.text().strip()
+                    number = self.number_input.text().strip()
+                    reference = self.reference_input.text().strip()
+
+                    if street:
+                        address_parts = [street]
+                        if number:
+                            address_parts.append(f"nº {number}")
+                        if reference:
+                            address_parts.append(f"Ref: {reference}")
+                        order_notes += f" - {', '.join(address_parts)}"
+                elif self.pickup_checkbox.isChecked():
+                    order_notes = "Retirada"
+
+                total_amount = self.total_amount
+                if self.delivery_checkbox.isChecked():
+                    fee = 0.0
+                    neighborhoods = get_neighborhoods()
+                    for n in neighborhoods:
+                        if n[0] == self.selected_neighborhood_id:
+                            fee = n[2]
+                            break
+                    total_amount += fee
+
+                print_text = format_order_for_print(
+                    self.customer_data,
+                    self.order_items,
+                    total_amount,
+                    order_notes
+                )
+
+                if file_printer.print(print_text):
+                    QMessageBox.information(
+                        self, "Arquivo Salvo",
+                        "Pedido salvo como arquivo TXT na pasta "
+                        "'pedidos_impressos'.")
+                else:
+                    QMessageBox.warning(
+                        self, "Erro", "Não foi possível salvar o arquivo.")
+
+            except Exception as e:
+                LOGGER.error(f"Erro ao salvar arquivo: {e}")
+                QMessageBox.warning(
+                    self, "Erro", f"Erro ao salvar arquivo: {str(e)}")
 
     def reject(self):
         """Cancela o modal."""

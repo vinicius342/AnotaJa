@@ -124,6 +124,17 @@ def init_db():
             )
         ''')
 
+        # Tabela de configurações do sistema
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS system_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setting_key TEXT UNIQUE NOT NULL,
+                setting_value TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         # Migração: adicionar coluna is_mandatory se não existir
         cursor.execute("PRAGMA table_info(item_addition_link)")
         columns = [column[1] for column in cursor.fetchall()]
@@ -1012,3 +1023,38 @@ def get_all_additions_for_item_with_mandatory_and_specific_info(item_id, categor
         all_additions = list(category_additions) + \
             list(item_specific_additions)
         return all_additions
+
+
+# Funções para configurações do sistema
+def get_system_setting(key, default_value=None):
+    """Obtém uma configuração do sistema pelo nome da chave"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT setting_value FROM system_settings WHERE setting_key = ?',
+            (key,)
+        )
+        result = cursor.fetchone()
+        return result[0] if result else default_value
+
+
+def set_system_setting(key, value):
+    """Define ou atualiza uma configuração do sistema"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO system_settings 
+            (setting_key, setting_value, updated_at) 
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (key, str(value)))
+        conn.commit()
+
+
+def get_all_system_settings():
+    """Retorna todas as configurações do sistema"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT setting_key, setting_value FROM system_settings'
+        )
+        return dict(cursor.fetchall())

@@ -282,10 +282,12 @@ class OrderScreen(QWidget):
         dialog.item_added.connect(self.add_item_to_order)
         dialog.dialog_closed.connect(self.on_add_item_dialog_closed)
 
-        # Posiciona o diálogo em relação à janela principal
-        if self.parent():
-            parent_geometry = self.parent().geometry()
-            dialog.move(parent_geometry.x() + 50, parent_geometry.y() + 50)
+        # Centraliza o diálogo na tela
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.show()
+        dialog.move(
+            dialog.screen().geometry().center() - dialog.rect().center()
+        )
 
         dialog.exec()
 
@@ -449,14 +451,6 @@ class OrderScreen(QWidget):
             self.selected_customer, self.order_items, total, None)
 
         if dialog.exec():
-            # Pedido finalizado com sucesso
-            customer_name = self.selected_customer.get('name', '')
-            QMessageBox.information(
-                self, "Sucesso",
-                f"Pedido finalizado para {customer_name}!\n"
-                f"Total: R$ {total:,.2f}".replace(
-                    ",", "X").replace(".", ",").replace("X", ".")
-            )
             # Limpa o pedido após finalizar
             self.clear_order()
 
