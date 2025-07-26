@@ -14,7 +14,6 @@ from ui.neighborhood_management import NeighborhoodManagementWindow
 from ui.order_screen import OrderScreen
 from ui.settings_dialog import SettingsDialog
 from utils.log_utils import get_logger
-from utils.print_settings import get_default_printer
 from utils.printer import Printer
 from utils.utils import STYLE
 
@@ -40,7 +39,7 @@ class PrintThread(QThread):
         self.text = text
 
     def run(self):
-        printer = get_default_printer()
+        printer = Printer.get_default_printer()
         if printer:
             LOGGER.info(f'Iniciando impressão em {printer.name}')
             # Executa a impressão (pode ser bloqueante)

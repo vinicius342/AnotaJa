@@ -9,14 +9,34 @@ from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QHeaderView,
                                QTableWidget, QTableWidgetItem, QTextEdit,
                                QVBoxLayout, QWidget)
 
+# Importa as configurações de impressão
+from database.db import get_system_setting
 from ui.add_item_dialog import AddItemDialog
 from ui.widgets.search_widgets import CustomerSearchWidget, ItemSearchWidget
 from utils.log_utils import get_logger
+from utils.printer import Printer
 
 LOGGER = get_logger(__name__)
 
 
 class OrderScreen(QWidget):
+    def refresh_order_table(self):
+        """Força a atualização completa da tabela de itens do pedido."""
+        self.order_table.setRowCount(0)
+        for idx, item in enumerate(self.order_items):
+            qtd = item.get('qty', 1)
+            qtd_item = QTableWidgetItem(f"{qtd}x")
+            nome_item = QTableWidgetItem(item['item_data'][1])
+            categoria_item = QTableWidgetItem(item['item_data'][4])
+            action_item = QTableWidgetItem("🖊️ Editar")
+            action_item.setToolTip("Clique duplo para editar este item")
+            self.order_table.insertRow(idx)
+            self.order_table.setItem(idx, 0, qtd_item)
+            self.order_table.setItem(idx, 1, nome_item)
+            self.order_table.setItem(idx, 2, categoria_item)
+            self.order_table.setItem(idx, 3, action_item)
+        self.order_table.viewport().update()
+
     """Tela de pedidos simplificada."""
 
     def __init__(self, screen_title, parent=None, customers=None):
@@ -593,8 +613,9 @@ class OrderScreen(QWidget):
 
         try:
             LOGGER.info("[EDIT_ITEM] Iniciando bloco try")
-            # Obtém dados do item atual
-            item_data = self.order_items[row]['item_data']
+            # Obtém dados do item atual (dicionário completo)
+            item_dict = self.order_items[row]
+            item_data = item_dict['item_data']
             item_name = item_data[1] if len(item_data) > 1 else 'N/A'
             LOGGER.info(f"[EDIT_ITEM] item_data obtido: {item_name}")
 
@@ -609,17 +630,17 @@ class OrderScreen(QWidget):
             LOGGER.info("[EDIT_ITEM] _editing_dialog definido")
 
             # Preenche os campos do dialog com os dados atuais
-            # Exemplo: quantidade, complementos, observações
-            LOGGER.info("[EDIT_ITEM] Preenchendo campos do diálogo")
-            qty = self.order_items[row].get('qty', 1)
-            edit_dialog.item_qty.setValue(qty)
-            LOGGER.info(f"[EDIT_ITEM] Quantidade definida: {qty}")
-
-            if 'observations' in self.order_items[row]:
-                edit_dialog.observations.setText(
-                    self.order_items[row]['observations'])
-                LOGGER.info("[EDIT_ITEM] Observações preenchidas")
-            # TODO: preencher complementos se necessário
+            if hasattr(edit_dialog, 'set_initial_state'):
+                edit_dialog.set_initial_state(item_dict)
+                LOGGER.info(
+                    "[EDIT_ITEM] Estado inicial preenchido via set_initial_state")
+            else:
+                # Fallback para versões antigas
+                qty = item_dict.get('qty', 1)
+                edit_dialog.item_qty.setValue(qty)
+                if 'observations' in item_dict:
+                    edit_dialog.observations.setText(item_dict['observations'])
+                LOGGER.info("[EDIT_ITEM] Estado inicial preenchido (fallback)")
 
             def update_item_on_save(edited_item):
                 try:
@@ -651,8 +672,13 @@ class OrderScreen(QWidget):
                         self.order_table.setItem(
                             row, 2, QTableWidgetItem(item_category))
 
+                        # Força atualização total da tabela
+                        LOGGER.info(
+                            f"[UPDATE_ITEM] order_items atual: {self.order_items}")
+                        self.refresh_order_table()
                         self.update_total_label()
-                        LOGGER.info("[UPDATE_ITEM] Atualização concluída")
+                        LOGGER.info(
+                            "[UPDATE_ITEM] Atualização concluída (refresh total)")
                     else:
                         LOGGER.warning(f"[UPDATE_ITEM] Row {row} inválido")
 
@@ -667,12 +693,10 @@ class OrderScreen(QWidget):
                     self._editing_dialog = None
                     LOGGER.info("[DIALOG_FINISHED] _editing_dialog limpo")
 
-            # Conecta sinais com Qt.UniqueConnection para evitar duplicações
+            # Conecta sinais normalmente (sem UniqueConnection)
             LOGGER.info("[EDIT_ITEM] Conectando sinais")
-            edit_dialog.item_added.connect(
-                update_item_on_save, Qt.UniqueConnection)
-            edit_dialog.finished.connect(
-                on_dialog_finished, Qt.UniqueConnection)
+            edit_dialog.item_added.connect(update_item_on_save)
+            edit_dialog.finished.connect(on_dialog_finished)
             LOGGER.info("[EDIT_ITEM] Sinais conectados")
 
             LOGGER.info("[EDIT_ITEM] Executando diálogo")

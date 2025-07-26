@@ -17,6 +17,49 @@ LOGGER = get_logger(__name__)
 
 
 class AddItemDialog(QDialog):
+    def set_initial_state(self, item_dict):
+        """Preenche o diálogo com os dados de um item já existente (edição)."""
+        # Quantidade
+        qty = item_dict.get('qty', 1)
+        self.item_qty.setValue(qty)
+
+        # Observações
+        obs = item_dict.get('observations', '')
+        self.observations.setText(obs)
+
+        # Complementos opcionais
+        self.selected_additions_data = []
+        self.selected_additions.clear()
+        for add in item_dict.get('additions', []):
+            # Adiciona visualmente
+            text = f"{add.get('qty', 1)}x {add.get('name', '')} - R$ {add.get('price', 0.0)*add.get('qty', 1):.2f}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, add)
+            self.selected_additions.addItem(item)
+            # Adiciona aos dados
+            self.selected_additions_data.append(add.copy())
+
+        # Complementos obrigatórios (checkboxes)
+        # Só é possível marcar após load_additions, então usamos singleShot para garantir
+        from PySide6.QtCore import QTimer
+
+        def marcar_obrigatorios():
+            obrigatorios = item_dict.get('mandatory_additions', [])
+            for i in range(self.mandatory_additions_layout.count()):
+                item = self.mandatory_additions_layout.itemAt(i)
+                if item and item.widget():
+                    widget = item.widget()
+                    checkbox = widget.findChild(QCheckBox)
+                    if checkbox:
+                        add_data = checkbox.property('addition_data')
+                        if add_data and any(a['id'] == add_data['id'] for a in obrigatorios):
+                            checkbox.setChecked(True)
+                        else:
+                            checkbox.setChecked(False)
+        QTimer.singleShot(0, marcar_obrigatorios)
+
+        # Recalcula o valor total ao abrir para edição
+        self.update_total_price()
     """Diálogo para adicionar item ao pedido com complementos."""
 
     item_added = Signal(dict)  # Sinal emitido quando item é adicionado

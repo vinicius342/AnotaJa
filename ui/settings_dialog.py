@@ -6,8 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFrame, QGroupBox, QHBoxLayout, QLabel,
-                               QLineEdit, QMessageBox, QPushButton, QSlider,
-                               QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+                               QLineEdit, QMessageBox, QPushButton, QSpinBox,
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from database.db import get_system_setting, set_system_setting
 from utils.log_utils import get_logger
@@ -156,76 +156,52 @@ class SettingsDialog(QDialog):
         margin_layout.addStretch()
         print_settings_layout.addLayout(margin_layout)
 
-        # Escala da impressão
-        scale_layout = QHBoxLayout()
-        scale_layout.addWidget(QLabel("Escala:"))
-        self.scale_slider = QSlider(Qt.Orientation.Horizontal)
-        self.scale_slider.setMinimum(50)
-        self.scale_slider.setMaximum(200)
-        self.scale_slider.setValue(100)
-        self.scale_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.scale_slider.setTickInterval(25)
-        scale_layout.addWidget(self.scale_slider)
-
-        self.scale_label = QLabel("100%")
-        self.scale_slider.valueChanged.connect(
-            lambda v: self.scale_label.setText(f"{v}%"))
-        scale_layout.addWidget(self.scale_label)
-        print_settings_layout.addLayout(scale_layout)
-
-        # Fonte da impressão
+        # Configurações de fonte
         font_layout = QHBoxLayout()
-        font_layout.addWidget(QLabel("Tamanho da Fonte:"))
-        self.font_size_spinbox = QSpinBox()
-        self.font_size_spinbox.setMinimum(8)
-        self.font_size_spinbox.setMaximum(24)
-        self.font_size_spinbox.setValue(12)
-        self.font_size_spinbox.setSuffix(" pt")
-        font_layout.addWidget(self.font_size_spinbox)
-        font_layout.addStretch()
+        # Tipo de fonte (A/B)
+        font_type_label = QLabel("Tipo de Fonte:")
+        self.font_type_combo = QComboBox()
+        self.font_type_combo.addItems(["A (12x24)", "B (9x17)"])
+        font_layout.addWidget(font_type_label)
+        font_layout.addWidget(self.font_type_combo)
+
+        # Tamanho ESC/POS (normal, duplo, triplo)
+        escpos_size_label = QLabel("Tamanho ESC/POS:")
+        self.escpos_size_combo = QComboBox()
+        self.escpos_size_combo.addItems(["normal", "duplo", "triplo"])
+        font_layout.addWidget(escpos_size_label)
+        font_layout.addWidget(self.escpos_size_combo)
+
+        # Negrito
+        self.bold_checkbox = QCheckBox("Negrito (ESC/POS)")
+        font_layout.addWidget(self.bold_checkbox)
+
+        # Adiciona o layout de fonte ao layout principal da aba
         print_settings_layout.addLayout(font_layout)
 
-        # Tamanho físico do papel
-        paper_size_layout = QHBoxLayout()
-        paper_size_layout.addWidget(QLabel("Tamanho do Papel:"))
-        self.paper_size_combo = QComboBox()
-        self.paper_size_combo.addItems(
-            ["80mm x 297mm (72 colunas)", "58mm x 297mm (48 colunas)"])
-        paper_size_layout.addWidget(self.paper_size_combo)
-        paper_size_layout.addStretch()
-        print_settings_layout.addLayout(paper_size_layout)
-
-        # Largura do papel (colunas)
-        columns_layout = QHBoxLayout()
-        columns_layout.addWidget(QLabel("Largura do Papel (colunas):"))
-        self.paper_columns_spinbox = QSpinBox()
-        self.paper_columns_spinbox.setMinimum(20)
-        self.paper_columns_spinbox.setMaximum(80)
-        self.paper_columns_spinbox.setValue(42)  # padrão 80mm
-        self.paper_columns_spinbox.setSuffix(" colunas")
-        columns_layout.addWidget(self.paper_columns_spinbox)
-        columns_layout.addStretch()
-        print_settings_layout.addLayout(columns_layout)
-
-        # Atualiza colunas conforme tamanho do papel
-        def update_columns_by_paper_size(idx):
-            if idx == 0:
-                self.paper_columns_spinbox.setValue(72)
-            else:
-                self.paper_columns_spinbox.setValue(48)
-        self.paper_size_combo.currentIndexChanged.connect(
-            update_columns_by_paper_size)
+        # Configuração de tamanho de impressão
+        size_layout = QHBoxLayout()
+        size_label = QLabel("Tamanho de Impressão:")
+        self.print_size_combo = QComboBox()
+        self.print_size_combo.addItems([
+            "Normal",
+            "Duplo Altura",
+            "Duplo Largura",
+            "Duplo",
+            "Intermediário Altura",
+            "Intermediário Largura",
+            "Intermediário",
+            "Triplo"
+        ])
+        size_layout.addWidget(size_label)
+        size_layout.addWidget(self.print_size_combo)
+        print_settings_layout.addLayout(size_layout)
 
         # Imprimir cabeçalho da empresa
         self.print_header_checkbox = QCheckBox(
             "Incluir cabeçalho da empresa nos pedidos")
         self.print_header_checkbox.setChecked(True)
         print_settings_layout.addWidget(self.print_header_checkbox)
-
-        # Imprimir em negrito
-        self.bold_checkbox = QCheckBox("Imprimir em negrito (térmica)")
-        self.bold_checkbox.setChecked(False)
-        print_settings_layout.addWidget(self.bold_checkbox)
 
         layout.addWidget(print_settings_group)
         layout.addStretch()
@@ -344,27 +320,42 @@ class SettingsDialog(QDialog):
 
             # Verifica se há impressoras térmicas na lista
             thermal_found = False
-            thermal_keywords = ['elgin', 'i9', 'i7', 'i8', 'thermal', 'termica',
-                                'pos', 'bematech', 'epson', 'tm-']
+            thermal_keywords = [
+                'elgin', 'i9', 'i7', 'i8', 'thermal', 'termica',
+                'pos', 'bematech', 'epson', 'tm-'
+            ]
 
             for i in range(self.printer_combo.count()):
                 printer_name = self.printer_combo.itemText(i).lower()
-                if any(keyword in printer_name for keyword in thermal_keywords):
+                if any(
+                    keyword in printer_name for keyword in thermal_keywords
+                ):
                     thermal_found = True
                     self.printer_combo.setCurrentIndex(i)
                     QMessageBox.information(
-                        self, "Impressora Térmica Encontrada",
-                        f"Impressora térmica detectada: {self.printer_combo.itemText(i)}\n"
-                        "Esta impressora foi selecionada automaticamente.")
+                        self,
+                        "Impressora Térmica Encontrada",
+                        (
+                            f"Impressora térmica detectada: "
+                            f"{self.printer_combo.itemText(i)}\n"
+                            "Esta impressora foi selecionada automaticamente."
+                        )
+                    )
                     return
 
             if not thermal_found:
                 reply = QMessageBox.question(
-                    self, "Nenhuma Impressora Térmica Detectada",
-                    "Não foi possível detectar impressoras térmicas automaticamente.\n\n"
-                    "Você gostaria de configurar manualmente uma impressora térmica?\n"
-                    "Isso adicionará opções comuns de impressoras térmicas à lista.",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    self,
+                    "Nenhuma Impressora Térmica Detectada",
+                    (
+                        "Não foi possível detectar impressoras térmicas "
+                        "automaticamente.\n\n"
+                        "Você gostaria de configurar manualmente uma "
+                        "impressora térmica?\nIsso adicionará opções comuns "
+                        "de impressoras térmicas à lista."
+                    ),
+                    QMessageBox.StandardButton.Yes |
+                    QMessageBox.StandardButton.No
                 )
 
                 if reply == QMessageBox.StandardButton.Yes:
@@ -398,13 +389,21 @@ class SettingsDialog(QDialog):
 
         if added_count > 0:
             QMessageBox.information(
-                self, "Impressoras Adicionadas",
-                f"{added_count} opções de impressoras térmicas foram adicionadas à lista.\n"
-                "Selecione a que corresponde ao seu equipamento.")
+                self,
+                "Impressoras Adicionadas",
+                (
+                    f"{added_count} opções de impressoras térmicas foram "
+                    f"adicionadas à lista.\nSelecione a que corresponde ao "
+                    f"seu equipamento."
+                )
+            )
         else:
             QMessageBox.information(
-                self, "Impressoras Térmicas",
-                "As opções de impressoras térmicas já estão disponíveis na lista.")
+                self,
+                "Impressoras Térmicas",
+                "As opções de impressoras térmicas já estão disponíveis "
+                "na lista."
+            )
 
     def load_settings(self):
         """Carrega as configurações salvas."""
@@ -422,23 +421,6 @@ class SettingsDialog(QDialog):
             # Configurações de impressão
             margin = int(get_system_setting('print_margin', '5'))
             self.margin_spinbox.setValue(margin)
-
-            scale = int(get_system_setting('print_scale', '100'))
-            self.scale_slider.setValue(scale)
-            self.scale_label.setText(f"{scale}%")
-
-            font_size = int(get_system_setting('print_font_size', '12'))
-            self.font_size_spinbox.setValue(font_size)
-
-            # Carrega tamanho do papel
-            paper_size = get_system_setting('paper_size', '80x297')
-            if paper_size == '80x297':
-                self.paper_size_combo.setCurrentIndex(0)
-            else:
-                self.paper_size_combo.setCurrentIndex(1)
-            paper_columns = int(get_system_setting(
-                'paper_columns', '72' if paper_size == '80x297' else '48'))
-            self.paper_columns_spinbox.setValue(paper_columns)
 
             print_header = get_system_setting('print_header', 'true') == 'true'
             self.print_header_checkbox.setChecked(print_header)
@@ -465,6 +447,23 @@ class SettingsDialog(QDialog):
 
             history_months = int(get_system_setting('history_months', '12'))
             self.history_spinbox.setValue(history_months)
+
+            # Tamanho de impressão
+            self.print_size_commands = {
+                "Normal": b'\x1d!\x00',
+                "Duplo Altura": b'\x1d!\x01',
+                "Duplo Largura": b'\x1d!\x10',
+                "Duplo": b'\x1d!\x11',
+                "Intermediário Altura": b'\x1d!\x02',
+                "Intermediário Largura": b'\x1d!\x20',
+                "Intermediário": b'\x1d!\x21',
+                "Triplo": b'\x1d!\x12'
+            }
+
+            selected_size = get_system_setting('print_size', 'Normal')
+            index = self.print_size_combo.findText(selected_size)
+            if index >= 0:
+                self.print_size_combo.setCurrentIndex(index)
 
         except Exception as e:
             LOGGER.error(f"Erro ao carregar configurações: {e}")
@@ -498,15 +497,6 @@ class SettingsDialog(QDialog):
 
             set_system_setting('print_margin',
                                str(self.margin_spinbox.value()))
-            set_system_setting('print_scale', str(self.scale_slider.value()))
-            set_system_setting('print_font_size',
-                               str(self.font_size_spinbox.value()))
-
-            # Salva tamanho do papel
-            paper_size_value = '80x297' if self.paper_size_combo.currentIndex() == 0 else '58x297'
-            set_system_setting('paper_size', paper_size_value)
-            set_system_setting('paper_columns', str(
-                self.paper_columns_spinbox.value()))
 
             print_header_value = ('true'
                                   if self.print_header_checkbox.isChecked()
@@ -538,6 +528,11 @@ class SettingsDialog(QDialog):
                                self.backup_combo.currentText())
             set_system_setting('history_months',
                                str(self.history_spinbox.value()))
+
+            # Tamanho de impressão
+            set_system_setting(
+                'print_size', self.print_size_combo.currentText()
+            )
 
             QMessageBox.information(
                 self, "Sucesso", "Configurações salvas com sucesso!")

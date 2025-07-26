@@ -58,9 +58,6 @@ def get_print_settings():
     try:
         return {
             'margin': int(get_system_setting('print_margin', '5')),
-            'scale': int(get_system_setting('print_scale', '100')),
-            'font_size': int(get_system_setting('print_font_size', '12')),
-            'paper_columns': int(get_system_setting('paper_columns', '42')),
             'include_header': (
                 get_system_setting('print_header', 'true') == 'true'
             ),
@@ -70,9 +67,6 @@ def get_print_settings():
         LOGGER.error(f"Erro ao obter configurações de impressão: {e}")
         return {
             'margin': 5,
-            'scale': 100,
-            'font_size': 12,
-            'paper_columns': 42,
             'include_header': True,
             'bold': False
         }
@@ -90,10 +84,6 @@ def set_print_settings(settings: dict):
             'print_bold', 'true' if settings['bold'] else 'false')
     if 'margin' in settings:
         set_system_setting('print_margin', str(settings['margin']))
-    if 'scale' in settings:
-        set_system_setting('print_scale', str(settings['scale']))
-    if 'font_size' in settings:
-        set_system_setting('print_font_size', str(settings['font_size']))
     if 'include_header' in settings:
         set_system_setting(
             'print_header', 'true' if settings['include_header'] else 'false')

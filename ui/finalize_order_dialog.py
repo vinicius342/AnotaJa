@@ -8,56 +8,47 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel,
                                QLineEdit, QMenu, QMessageBox, QPushButton,
                                QVBoxLayout, QWidget)
 
-from database.db import (get_customer_by_phone, get_neighborhoods, save_order,
-                         update_customer)
+from database.db import (get_customer_by_phone, get_neighborhoods,
+                         get_system_setting, save_order, update_customer)
 from utils.log_utils import get_logger
 from utils.print_settings import (format_order_for_print, get_default_printer,
                                   should_play_notification_sound)
+from utils.printer import Printer
 
 LOGGER = get_logger(__name__)
 
 
 class PrintThread(QThread):
-    """Thread para impressão em background."""
+    """Thread para impressão em background usando HTML."""
     finished_signal = Signal(str)
     error_signal = Signal(str)
 
-    def __init__(self, text, parent=None):
+    def __init__(self, customer_data, order_items, total_amount, parent=None):
         super().__init__(parent)
-        self.text = text
+        self.customer_data = customer_data
+        self.order_items = order_items
+        self.total_amount = total_amount
 
     def run(self):
-        """Executa a impressão."""
+        """Executa a impressão HTML centralizada pelo Printer."""
         try:
-            LOGGER.info('[PRINT_THREAD] Iniciando thread de impressão')
-            printer = get_default_printer()
-            if printer:
+            LOGGER.info(
+                '[PRINT_THREAD] Iniciando thread de impressão (HTML via Printer)')
+            printer = Printer("Sistema de Impressão")
+            success = printer.print_html_order(
+                self.customer_data,
+                self.order_items,
+                self.total_amount
+            )
+            if success:
                 LOGGER.info(
-                    f'[PRINT_THREAD] Impressora obtida: {printer.name}')
-                LOGGER.info(
-                    f'[PRINT_THREAD] Tipo térmica: {printer.is_thermal}')
-                LOGGER.info(f'Iniciando impressão do pedido em {printer.name}')
-
-                success = printer.print(self.text)
-
-                if success:
-                    LOGGER.info(
-                        f'[PRINT_THREAD] printer.print() retornou: {success}')
-                    LOGGER.info(f'Impressão concluída em {printer.name}')
-                    self.finished_signal.emit(printer.name)
-                else:
-                    LOGGER.error(
-                        f'[PRINT_THREAD] printer.print() retornou: {success}')
-                    LOGGER.error(f'Erro na impressão em {printer.name}')
-                    error_msg = f'Erro na impressão em {printer.name}'
-                    self.error_signal.emit(error_msg)
+                    '[PRINT_THREAD] Impressão HTML concluída com sucesso')
+                self.finished_signal.emit("Sistema de Impressão")
             else:
-                LOGGER.warning('[PRINT_THREAD] Nenhuma impressora configurada')
-                LOGGER.warning('Nenhuma impressora configurada')
-                self.error_signal.emit('Nenhuma impressora configurada')
+                LOGGER.error('[PRINT_THREAD] Falha na impressão HTML')
+                self.error_signal.emit('Erro na impressão HTML')
         except Exception as e:
             LOGGER.error(f'[PRINT_THREAD] Exceção durante impressão: {e}')
-            LOGGER.error(f'Erro durante impressão: {e}')
             self.error_signal.emit(f'Erro durante impressão: {str(e)}')
 
 
@@ -80,7 +71,7 @@ class FinalizeOrderDialog(QDialog):
         super().__init__(parent)
         self.order_items = order_items
         self.total_amount = total_amount
-        self.result = False
+        self.result: bool = False
         self.event_loop = None
 
         # Busca dados completos do cliente se necessário
@@ -191,7 +182,7 @@ class FinalizeOrderDialog(QDialog):
 
         # Checkbox Entrega
         self.delivery_checkbox = QCheckBox("Entrega")
-        self.delivery_checkbox.setFocusPolicy(Qt.StrongFocus)
+        self.delivery_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.delivery_checkbox.keyPressEvent = lambda event: self.checkbox_key_handler(
             event, self.delivery_checkbox)
         layout.addWidget(self.delivery_checkbox)
@@ -214,7 +205,7 @@ class FinalizeOrderDialog(QDialog):
         self.total_label.setFont(total_font)
         self.total_label.setStyleSheet(
             "QLabel { color: #2a7; margin: 15px 0; }")
-        self.total_label.setAlignment(Qt.AlignCenter)
+        self.total_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.update_total_label()
         layout.addWidget(self.total_label)
 
@@ -528,17 +519,15 @@ class FinalizeOrderDialog(QDialog):
         super().accept()
 
     def print_order(self):
-        """Imprime o pedido usando as configurações do sistema."""
+        """Imprime o pedido usando o novo sistema HTML."""
         try:
-            # Determina as observações do pedido
+            # Preparar dados do pedido
             order_notes = ""
             if self.delivery_checkbox.isChecked():
                 order_notes = "Entrega"
-                # Adiciona endereço se disponível
                 street = self.street_input.text().strip()
                 number = self.number_input.text().strip()
                 reference = self.reference_input.text().strip()
-
                 if street:
                     address_parts = [street]
                     if number:
@@ -549,7 +538,7 @@ class FinalizeOrderDialog(QDialog):
             elif self.pickup_checkbox.isChecked():
                 order_notes = "Retirada"
 
-            # Calcula o total com taxa de entrega se aplicável
+            # Calcular total com taxa de entrega
             total_amount = self.total_amount
             if self.delivery_checkbox.isChecked():
                 fee = 0.0
@@ -560,24 +549,21 @@ class FinalizeOrderDialog(QDialog):
                         break
                 total_amount += fee
 
-            # Formata o pedido para impressão
-            print_text = format_order_for_print(
+            # Iniciar thread de impressão com novo sistema
+            self.print_thread = PrintThread(
                 self.customer_data,
                 self.order_items,
                 total_amount,
-                order_notes
+                self
             )
-
-            # Inicia impressão em thread separada
-            self.print_thread = PrintThread(print_text, self)
             self.print_thread.finished_signal.connect(self.on_print_finished)
             self.print_thread.error_signal.connect(self.on_print_error)
             self.print_thread.start()
 
         except Exception as e:
-            LOGGER.error(f"Erro ao preparar impressão: {e}")
-            QMessageBox.warning(
-                self, "Erro", f"Erro ao preparar impressão: {str(e)}")
+            LOGGER.error(f"Erro durante preparação da impressão: {e}")
+            self.on_print_error(
+                f"Erro durante preparação da impressão: {str(e)}")
 
     def on_print_finished(self, printer_name):
         """Callback quando a impressão é concluída."""
@@ -604,7 +590,10 @@ class FinalizeOrderDialog(QDialog):
         LOGGER.error(f"Erro na impressão: {error_message}")
 
         # Verificar se é um erro de impressora não inicializada
-        if "não pôde ser inicializada" in error_message or "não foi encontrada" in error_message:
+        if (
+            "não pôde ser inicializada" in error_message or
+            "não foi encontrada" in error_message
+        ):
             QMessageBox.warning(
                 self, "Problema com a Impressora",
                 f"{error_message}\n\n"
@@ -705,7 +694,9 @@ class FinalizeOrderDialog(QDialog):
         super().closeEvent(event)
 
     def checkbox_key_handler(self, event, checkbox):
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+        if event.key() in (
+            Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space
+        ):
             checkbox.setChecked(not checkbox.isChecked())
             event.accept()
         else:

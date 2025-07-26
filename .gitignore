@@ -211,3 +211,9 @@ build/
 # Arquivos de teste temporários
 test_output/
 test_*.db
+
+# Permitir SumatraPDF.exe mesmo ignorando *.exe
+!utils/SumatraPDF.exe
+
+# Configurações locais do SumatraPDF
+SumatraPDF-settings.txt
