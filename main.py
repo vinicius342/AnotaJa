@@ -52,6 +52,12 @@ class PrintThread(QThread):
 
 
 class MainWindow(QMainWindow):
+    def update_all_customer_suggestions(self):
+        """Atualiza sugestões de clientes em todas as telas OrderScreen."""
+        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+            if hasattr(screen, 'customer_search') and hasattr(screen.customer_search, 'load_customers'):
+                screen.customer_search.load_customers()
+
     def __init__(self):
         super().__init__()
         LOGGER.info('MainWindow inicializada')
@@ -99,6 +105,21 @@ class MainWindow(QMainWindow):
         self.screen2 = OrderScreen("Pedido 2", customers=ALL_CUSTOMERS)
         self.screen3 = OrderScreen("Pedido 3", customers=ALL_CUSTOMERS)
         self.screen4 = OrderScreen("Pedido 4", customers=ALL_CUSTOMERS)
+
+        # Conecta o sinal de atualização de sugestões de clientes de cada tela para atualizar todas
+        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+            if hasattr(screen, 'customer_search') and hasattr(screen.customer_search, 'load_customers'):
+                # Garante que o dialog de finalização de pedido, ao registrar cliente, chame update_all_customer_suggestions
+                def make_connect(s=screen):
+                    if hasattr(s, 'finalize_order'):
+                        orig_finalize = s.finalize_order
+
+                        def wrapped_finalize_order(*args, **kwargs):
+                            result = orig_finalize(*args, **kwargs)
+                            self.update_all_customer_suggestions()
+                            return result
+                        s.finalize_order = wrapped_finalize_order
+                make_connect(screen)
 
         # Adiciona os frames dos pedidos
         layout.addWidget(self.screen1, 0, 0)

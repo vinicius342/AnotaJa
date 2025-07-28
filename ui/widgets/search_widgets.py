@@ -19,6 +19,11 @@ LOGGER = get_logger(__name__)
 
 
 class CustomerSearchWidget(QWidget):
+    def load_customers(self):
+        """Carrega a lista de clientes do banco e atualiza o widget."""
+        from database.db import get_customers
+        customers = get_customers()
+        self.set_customers(customers)
     """Widget de busca integrado com QLineEdit no topo e QListWidget abaixo."""
     customer_selected = Signal(dict)
     suggestions_list_shown = Signal()
@@ -122,9 +127,21 @@ class CustomerSearchWidget(QWidget):
             return
 
         # Adiciona os itens filtrados na lista
-        for nome, tel in filtered_customers:
+        for c in filtered_customers:
+            # c pode ser (id, name, phone, ...) ou (name, phone) dependendo do worker
+            if len(c) >= 3:
+                nome = c[1] if c[1] is not None else ""
+                tel = c[2] if c[2] is not None else ""
+            elif len(c) == 2:
+                nome = c[0] if c[0] is not None else ""
+                tel = c[1] if c[1] is not None else ""
+            elif len(c) == 1:
+                nome = c[0] if c[0] is not None else ""
+                tel = ""
+            else:
+                nome = ""
+                tel = ""
             if nome and tel:
-                # Nome seguido de hífen e telefone
                 suggestion_text = f"{nome} - {tel}"
             elif nome:
                 suggestion_text = nome
@@ -132,7 +149,8 @@ class CustomerSearchWidget(QWidget):
                 suggestion_text = tel
             else:
                 suggestion_text = "Cliente sem nome ou telefone"
-            self.customer_data[suggestion_text] = {"name": nome, "phone": tel}
+            self.customer_data[suggestion_text] = {
+                "name": nome, "phone": tel}
             self.suggestions_list.addItem(suggestion_text)
 
         self.show_suggestions()
@@ -177,6 +195,16 @@ class CustomerSearchWidget(QWidget):
     def on_item_selected(self, item):
         """Chamado quando um item da lista é selecionado."""
         if item:
+            # Verifica se é o item especial de adicionar novo cliente
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data and isinstance(data, dict) and data.get("is_add_new"):
+                # Emite sinal para registrar novo cliente
+                text = self.customer_lineedit.text().strip()
+                self.customer_selected.emit(
+                    {"state": "register", "name": text})
+                self.customer_lineedit.setText(text)
+                self.hide_suggestions()
+                return
             suggestion_text = item.text()
             if suggestion_text in self.customer_data:
                 selected_data = self.customer_data[suggestion_text]

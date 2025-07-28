@@ -451,12 +451,14 @@ def set_category_addition_ids(category_id, addition_ids):
 # CRUD para clientes
 
 def add_customer(name, phone, street=None, number=None, neighborhood_id=None, reference=None):
+    # Se phone for string vazia, converte para None para evitar violar UNIQUE
+    phone_db = phone if phone else None
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
             cursor.execute(
                 'INSERT INTO customers (name, phone, street, number, neighborhood_id, reference) VALUES (?, ?, ?, ?, ?, ?)',
-                (name, phone, street, number, neighborhood_id, reference)
+                (name, phone_db, street, number, neighborhood_id, reference)
             )
             conn.commit()
         except sqlite3.IntegrityError as e:

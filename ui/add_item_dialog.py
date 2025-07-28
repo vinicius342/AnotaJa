@@ -27,17 +27,19 @@ class AddItemDialog(QDialog):
         obs = item_dict.get('observations', '')
         self.observations.setText(obs)
 
-        # Complementos opcionais
+        # Complementos opcionais: só adiciona os que não são obrigatórios
         self.selected_additions_data = []
         self.selected_additions.clear()
+        # Pega ids dos obrigatórios para filtrar
+        mandatory_ids = set(a['id']
+                            for a in item_dict.get('mandatory_additions', []))
         for add in item_dict.get('additions', []):
-            # Adiciona visualmente
-            text = f"{add.get('qty', 1)}x {add.get('name', '')} - R$ {add.get('price', 0.0)*add.get('qty', 1):.2f}"
-            item = QListWidgetItem(text)
-            item.setData(Qt.ItemDataRole.UserRole, add)
-            self.selected_additions.addItem(item)
-            # Adiciona aos dados
-            self.selected_additions_data.append(add.copy())
+            if add.get('id') not in mandatory_ids:
+                text = f"{add.get('qty', 1)}x {add.get('name', '')} - R$ {add.get('price', 0.0)*add.get('qty', 1):.2f}"
+                item = QListWidgetItem(text)
+                item.setData(Qt.ItemDataRole.UserRole, add)
+                self.selected_additions.addItem(item)
+                self.selected_additions_data.append(add.copy())
 
         # Complementos obrigatórios (checkboxes)
         # Só é possível marcar após load_additions, então usamos singleShot para garantir
@@ -371,6 +373,8 @@ class AddItemDialog(QDialog):
                     # Conecta eventos de teclado
                     checkbox.keyPressEvent = lambda event, cb=checkbox: \
                         self.checkbox_key_handler(event, cb)
+                    # NOVO: Atualiza o total ao marcar/desmarcar
+                    checkbox.stateChanged.connect(self.update_total_price)
 
                     label = QLabel(f"{name} - R$ {price:.2f}")
                     label.setStyleSheet("font-size: 11px;")
@@ -628,12 +632,8 @@ class AddItemDialog(QDialog):
         self.additions_menu.popup(pos)
 
     def update_total_price(self):
-        """Atualiza o preço total considerando a quantidade do item."""
-        base_price = self.item_data[2]
-        item_qty = self.item_qty.value()
-        additions_total = sum(add['total']
-                              for add in self.selected_additions_data)
-        total = (base_price * item_qty) + additions_total
+        """Atualiza o preço total considerando a quantidade do item e obrigatórios."""
+        total = self.calculate_total()
         self.total_label.setText(f"Total: R$ {total:.2f}")
 
     def get_selected_mandatory_additions(self):
@@ -656,11 +656,14 @@ class AddItemDialog(QDialog):
     def add_to_order(self):
         """Adiciona item ao pedido."""
         try:
+            # Pega complementos obrigatórios selecionados
+            mandatory_additions = self.get_selected_mandatory_additions()
+
             # Monta dados do item completo
             item_complete = {
                 'item_data': self.item_data,
-                'additions': self.selected_additions_data.copy(),
-                'mandatory_additions': self.get_selected_mandatory_additions(),
+                'additions': self.selected_additions_data.copy(),  # apenas opcionais
+                'mandatory_additions': mandatory_additions,         # apenas obrigatórios
                 'observations': self.observations.toPlainText().strip(),
                 'total': self.calculate_total(),
                 'qty': self.item_qty.value()
@@ -677,11 +680,17 @@ class AddItemDialog(QDialog):
                                  f"Erro ao adicionar item: {str(e)}")
 
     def calculate_total(self):
-        """Calcula o total do item com complementos."""
+        """Calcula o total do item com complementos opcionais e obrigatórios."""
         base_price = self.item_data[2]
+        item_qty = self.item_qty.value() if hasattr(self, 'item_qty') else 1
+        # Total dos opcionais (já multiplicados pela quantidade deles)
         additions_total = sum(add['total']
                               for add in self.selected_additions_data)
-        return base_price + additions_total
+        # Total dos obrigatórios marcados (cada obrigatório é 1x por item)
+        mandatory_additions = self.get_selected_mandatory_additions()
+        mandatory_total = sum(add.get('price', 0.0)
+                              for add in mandatory_additions) * item_qty
+        return (base_price * item_qty) + additions_total + mandatory_total
 
     def accept(self):
         """Sobrescreve accept para garantir que o sinal seja emitido."""

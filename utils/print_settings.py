@@ -2,6 +2,7 @@
 Utilitários para gerenciamento de configurações do sistema.
 """
 
+
 from database.db import get_system_setting
 from utils.log_utils import get_logger
 from utils.printer import Printer
@@ -31,14 +32,14 @@ def get_default_printer():
             LOGGER.warning(
                 f"Impressora {printer_name} não encontrada na lista")
             # Se não encontrar e for uma impressora Elgin, tentar encontrar uma funcional
-            if 'ELGIN' in printer_name.upper() or 'i9' in printer_name.lower():
-                LOGGER.info(
-                    "Tentando encontrar impressora térmica funcional...")
-                working_printer = Printer.find_working_thermal_printer()
-                if working_printer:
-                    LOGGER.info(
-                        f"Impressora funcional encontrada: {working_printer.name}")
-                    return working_printer
+            # if 'ELGIN' in printer_name.upper() or 'i9' in printer_name.lower():
+            #     LOGGER.info(
+            #         "Tentando encontrar impressora térmica funcional...")
+            #     working_printer = Printer.find_working_thermal_printer()
+            #     if working_printer:
+            #         LOGGER.info(
+            #             f"Impressora funcional encontrada: {working_printer.name}")
+            #         return working_printer
 
             # Se não encontrar, retornar None para forçar nova seleção
             return None
@@ -142,7 +143,11 @@ def should_play_notification_sound():
 
 
 def format_order_for_print(customer_data, order_items, total_amount,
-                           order_notes=""):
+                           order_notes="", delivery_fee=0.0, payment_method=None, change_value=0.0):
+    def wrap_line(text, width=32):
+        """Quebra uma string em múltiplas linhas de até 'width' caracteres."""
+        import textwrap
+        return textwrap.wrap(text, width=width)
     """
     Formata um pedido para impressão usando as configurações do sistema.
 
@@ -160,32 +165,35 @@ def format_order_for_print(customer_data, order_items, total_amount,
         print_settings = get_print_settings()
 
         lines = []
+        separator_ = ["-" * 55]
 
         # Cabeçalho da empresa (se configurado)
         if print_settings['include_header'] and company_info['name']:
-            lines.append("=" * 40)
-            lines.append(company_info['name'].center(40))
-            if company_info['document']:
-                lines.append(company_info['document'].center(40))
-            if company_info['address']:
-                lines.append(company_info['address'].center(40))
-            if company_info['phone']:
-                lines.append(company_info['phone'].center(40))
-            lines.append("=" * 40)
-            lines.append("")
+            for line in wrap_line(company_info['name']):
+                lines.append(line.center(32))
+            lines.append('')
+            for field in ['document', 'address', 'phone']:
+                value = company_info.get(field)
+                if value:
+                    wrapped = wrap_line(str(value))
+                    for w in wrapped:
+                        lines.append(w.center(32))
+
+        # Data/hora
+        from datetime import datetime
+        for line in wrap_line(f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}"):
+            lines.append(line)
 
         # Informações do cliente
-        lines.append("PEDIDO")
-        lines.append("-" * 40)
         customer_name = customer_data.get('name', 'Cliente não informado')
         customer_phone = customer_data.get('phone', 'Telefone não informado')
-        lines.append(f"Cliente: {customer_name}")
-        lines.append(f"Telefone: {customer_phone}")
-        lines.append("")
+        for line in wrap_line(f"Cliente: {customer_name}"):
+            lines.append(line)
+        for line in wrap_line(f"Tel: {customer_phone}"):
+            lines.append(line)
 
         # Itens do pedido
-        lines.append("ITENS:")
-        lines.append("-" * 40)
+        lines.extend(separator_)
 
         for item in order_items:
             qty = item.get('qty', 1)
@@ -193,44 +201,104 @@ def format_order_for_print(customer_data, order_items, total_amount,
             item_name = item_data[1] if len(item_data) > 1 else 'Item'
             item_price = item_data[2] if len(item_data) > 2 else 0.0
 
-            lines.append(f"{qty}x {item_name}")
-            lines.append(f"   R$ {item_price:.2f}")
+            # Calcular total do item (base + obrigatórios + opcionais)
+            item_total = qty * item_price
+            # Soma obrigatórios
+            for mand in item.get('mandatory_additions', []):
+                mand_preco = mand.get('price', 0.0)
+                item_total += mand_preco * qty
+            # Soma opcionais
+            for add in item.get('additions', []):
+                add_qtd = add.get('qty', 1)
+                add_preco = add.get('price', 0.0)
+                item_total += add_qtd * add_preco
 
-            # Adicionais se existirem
+            for line in wrap_line(f"{qty}x | {item_name}"):
+                lines.append(line)
+
+            # Detalhes (complementos obrigatórios)
+            mandatory_additions = item.get('mandatory_additions', [])
+            if mandatory_additions:
+                lines.append("      Detalhes:")
+                for mand in mandatory_additions:
+                    mand_name = mand.get('name', 'Detalhe')
+                    mand_qty = mand.get('qty', 1)
+                    mand_line = f"      + {mand_qty}x | {mand_name}"
+                    for line in wrap_line(mand_line):
+                        lines.append(line)
+
+            # Adicionais opcionais
             if item.get('additions'):
+                lines.append("      Adicionais:")
                 for addition in item['additions']:
                     add_name = addition.get('name', 'Adicional')
                     add_qty = addition.get('qty', 1)
                     add_price = addition.get('price', 0.0)
-                    addition_line = (f"   + {add_qty}x {add_name} - "
+                    addition_line = (f"      + {add_qty}x | {add_name} - "
                                      f"R$ {add_price:.2f}")
-                    lines.append(addition_line)
+                    for line in wrap_line(addition_line):
+                        lines.append(line)
+
+            # Preço total do item
+            for line in wrap_line(f"   Total item: R$ {item_total:.2f}"):
+                lines.append(line)
 
             # Observações do item se existirem
             if item.get('observations'):
-                lines.append(f"   Obs: {item['observations']}")
+                for line in wrap_line(f"   Obs: {item['observations']}"):
+                    lines.append(line)
+            lines.extend(separator_)
 
-            lines.append("")
+        # Taxa de entrega (se houver)
+        if delivery_fee and delivery_fee > 0:
+            for line in wrap_line(f'Sub-total: R$ {total_amount - delivery_fee:.2f}'):
+                lines.append(line)
+            for line in wrap_line(f"Taxa de entrega: R$ {delivery_fee:.2f}"):
+                lines.append(line)
 
         # Total
-        lines.append("-" * 40)
-        lines.append(f"TOTAL: R$ {total_amount:.2f}")
-        lines.append("-" * 40)
+        for line in wrap_line(f"TOTAL: R$ {total_amount:.2f}"):
+            lines.append(line)
+
+        # Forma de pagamento
+        if payment_method:
+            if payment_method == "Dinheiro":
+                for line in wrap_line(f"Troco para: R$ {change_value:.2f}"):
+                    lines.append(line)
+            for line in wrap_line(f"Pagamento: {payment_method}"):
+                lines.append(line)
+        lines.extend(separator_)
 
         # Observações do pedido
-        if order_notes:
-            lines.append("")
-            lines.append(f"{order_notes}")
+        if order_notes and not isinstance(order_notes, list):
+            for line in wrap_line(f"{order_notes}"):
+                lines.append(line)
 
-        lines.append("-" * 40)
-
-        # Data/hora
-        from datetime import datetime
-        lines.append(f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        # Endereço (se não for retirada)
+        if isinstance(order_notes, list):
+            street, number, neighborhood, reference = order_notes
+            if street:
+                for line in wrap_line(f"Rua: {street}"):
+                    lines.append(line)
+            if number:
+                for line in wrap_line(f"Número: {number}"):
+                    lines.append(line)
+            if neighborhood:
+                for line in wrap_line(f"Bairro: {neighborhood}"):
+                    lines.append(line)
+            if reference:
+                for line in wrap_line(f"Ref: {reference}"):
+                    lines.append(line)
         lines.append("")
 
-        return "\n".join(lines)
+        return lines
 
     except Exception as e:
         LOGGER.error(f"Erro ao formatar pedido para impressão: {e}")
-        return f"Erro ao gerar impressão: {str(e)}"
+        return [f"Erro ao gerar impressão: {str(e)}"]
+
+
+# Função auxiliar para obter o texto completo, se necessário
+def format_order_for_print_text(*args, **kwargs):
+    lines = format_order_for_print(*args, **kwargs)
+    return "\n".join(lines)

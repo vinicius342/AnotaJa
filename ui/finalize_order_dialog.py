@@ -53,6 +53,8 @@ class PrintThread(QThread):
 
 
 class FinalizeOrderDialog(QDialog):
+    customer_registered = Signal(dict)
+
     def update_total_label(self):
         total = self.total_amount
         if self.delivery_checkbox.isChecked():
@@ -196,6 +198,48 @@ class FinalizeOrderDialog(QDialog):
         self.pickup_checkbox.keyPressEvent = lambda event: self.checkbox_key_handler(
             event, self.pickup_checkbox)
         layout.addWidget(self.pickup_checkbox)
+
+        # Forma de pagamento
+        payment_label = QLabel("Forma de Pagamento:")
+        payment_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(payment_label)
+
+        payment_layout = QHBoxLayout()
+        self.payment_button = QPushButton("Selecione...")
+        self.payment_menu = QMenu()
+        self.payment_button.setMenu(self.payment_menu)
+        self.payment_method = None
+        self.change_label = QLabel("Troco para:")
+        self.change_label.setVisible(False)
+        self.change_input = QLineEdit()
+        self.change_input.setPlaceholderText("R$ 0,00")
+        self.change_input.setFixedWidth(90)
+        self.change_input.setVisible(False)
+        payment_layout.addWidget(self.payment_button)
+        payment_layout.addWidget(self.change_label)
+        payment_layout.addWidget(self.change_input)
+        layout.addLayout(payment_layout)
+
+        # Adiciona opções ao menu
+        dinheiro_action = self.payment_menu.addAction("Dinheiro")
+        cartao_action = self.payment_menu.addAction("Cartão")
+        pix_action = self.payment_menu.addAction("Pix")
+
+        def set_payment_method(method):
+            self.payment_method = method
+            self.payment_button.setText(method)
+            if method == "Dinheiro":
+                self.change_label.setVisible(True)
+                self.change_input.setVisible(True)
+                self.change_input.setFocus()
+            else:
+                self.change_label.setVisible(False)
+                self.change_input.setVisible(False)
+
+        dinheiro_action.triggered.connect(
+            lambda: set_payment_method("Dinheiro"))
+        cartao_action.triggered.connect(lambda: set_payment_method("Cartão"))
+        pix_action.triggered.connect(lambda: set_payment_method("Pix"))
 
         # Label do total
         self.total_label = QLabel()
@@ -429,12 +473,46 @@ class FinalizeOrderDialog(QDialog):
             return False
 
     def save_order_to_database(self):
-        """Salva o pedido no banco de dados."""
+        """Salva o pedido no banco de dados. Se cliente não existir, cria antes."""
         try:
+            from database.db import add_customer
             customer_id = self.customer_data.get('id')
+            # Se não existe, cria o cliente
             if not customer_id:
-                LOGGER.error("ID do cliente não encontrado")
-                return False
+                name = self.customer_data.get('name', '')
+                phone = self.customer_data.get('phone', '')
+                street = None
+                number = None
+                neighborhood_id = None
+                reference = None
+                if self.delivery_checkbox.isChecked():
+                    street = self.street_input.text().strip()
+                    number = self.number_input.text().strip()
+                    neighborhood_id = self.selected_neighborhood_id
+                    reference = self.reference_input.text().strip()
+                # Cria o cliente e busca o novo id
+                try:
+                    add_customer(name, phone, street, number,
+                                 neighborhood_id, reference)
+                except Exception as e:
+                    LOGGER.error(f"Erro ao criar cliente: {e}")
+                    QMessageBox.warning(
+                        self, "Erro", f"Erro ao criar cliente: {str(e)}")
+                    return False
+                # Busca o cliente recém-criado
+                from database.db import get_customers
+                all_customers = get_customers()
+                for c in all_customers:
+                    if c[1] == name and c[2] == phone:
+                        customer_id = c[0]
+                        self.customer_data['id'] = customer_id
+                        # Não emite sinal para atualizar sugestões
+                        break
+                if not customer_id:
+                    LOGGER.error("Não foi possível obter o ID do novo cliente")
+                    QMessageBox.warning(
+                        self, "Erro", "Não foi possível obter o ID do novo cliente.")
+                    return False
 
             # Prepara dados dos itens para o banco
             items_data = []
@@ -519,46 +597,75 @@ class FinalizeOrderDialog(QDialog):
         super().accept()
 
     def print_order(self):
-        """Imprime o pedido usando o novo sistema HTML."""
+        """Gera o PDF do pedido e envia para impressão."""
         try:
             # Preparar dados do pedido
-            order_notes = ""
             if self.delivery_checkbox.isChecked():
-                order_notes = "Entrega"
                 street = self.street_input.text().strip()
                 number = self.number_input.text().strip()
-                reference = self.reference_input.text().strip()
-                if street:
-                    address_parts = [street]
-                    if number:
-                        address_parts.append(f"nº {number}")
-                    if reference:
-                        address_parts.append(f"Ref: {reference}")
-                    order_notes += f" - {', '.join(address_parts)}"
-            elif self.pickup_checkbox.isChecked():
-                order_notes = "Retirada"
-
-            # Calcular total com taxa de entrega
-            total_amount = self.total_amount
-            if self.delivery_checkbox.isChecked():
-                fee = 0.0
+                neighborhood = None
                 neighborhoods = get_neighborhoods()
                 for n in neighborhoods:
                     if n[0] == self.selected_neighborhood_id:
-                        fee = n[2]
+                        neighborhood = n[1]
                         break
-                total_amount += fee
+                reference = self.reference_input.text().strip()
+                order_notes = [street, number, neighborhood, reference]
+            elif self.pickup_checkbox.isChecked():
+                order_notes = "Retirada"
+            else:
+                order_notes = ""
 
-            # Iniciar thread de impressão com novo sistema
-            self.print_thread = PrintThread(
+            # Calcular total com taxa de entrega
+            total_amount = self.total_amount
+            delivery_fee = 0.0
+            if self.delivery_checkbox.isChecked():
+                neighborhoods = get_neighborhoods()
+                for n in neighborhoods:
+                    if n[0] == self.selected_neighborhood_id:
+                        delivery_fee = n[2]
+                        break
+                total_amount += delivery_fee
+
+            # Obter forma de pagamento e troco
+            payment_method = self.payment_method if hasattr(
+                self, 'payment_method') else None
+            change_value = 0.0
+            if payment_method == "Dinheiro":
+                change_text = self.change_input.text().replace(
+                    "R$", "").replace(",", ".").strip()
+                try:
+                    change_value = float(change_text) if change_text else 0.0
+                except Exception:
+                    change_value = 0.0
+
+            # Gerar linhas do recibo
+            from utils.print_settings import format_order_for_print
+            linhas = format_order_for_print(
                 self.customer_data,
                 self.order_items,
                 total_amount,
-                self
+                order_notes,
+                delivery_fee,
+                payment_method,
+                change_value
             )
-            self.print_thread.finished_signal.connect(self.on_print_finished)
-            self.print_thread.error_signal.connect(self.on_print_error)
-            self.print_thread.start()
+
+            # Gerar PDF temporário
+            import os
+            import tempfile
+            pdf_fd, pdf_path = tempfile.mkstemp(suffix="_pedido.pdf")
+            os.close(pdf_fd)
+            default_printer = get_default_printer()
+            printer_name = default_printer.name if default_printer else "Sistema de Impressão"
+            printer = Printer(printer_name)
+            printer.generate_order_pdf(pdf_path, linhas)
+
+            # Imprimir PDF
+            printer.print_pdf(pdf_path)
+
+            # Opcional: remover o PDF após imprimir
+            # os.remove(pdf_path)
 
         except Exception as e:
             LOGGER.error(f"Erro durante preparação da impressão: {e}")

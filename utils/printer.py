@@ -24,6 +24,49 @@ LOGGER = get_logger(__name__)
 
 
 class Printer:
+    def generate_order_pdf(self, pdf_path, linhas):
+        """
+        Gera um PDF do pedido no formato bobina térmica.
+        Args:
+            pdf_path (str): Caminho onde salvar o PDF
+            linhas (list): Linhas de texto para o recibo
+        """
+        from reportlab.lib.units import mm
+        from reportlab.pdfgen import canvas
+        largura = 80 * mm  # 80mm de largura (bobina padrão)
+        altura_linha = 6 * mm
+        margem_topo = 10 * mm
+        margem_base = 5 * mm
+        # Altura ajustada dinamicamente conforme quantidade de linhas
+        altura = margem_topo + margem_base + len(linhas) * altura_linha
+        c = canvas.Canvas(pdf_path, pagesize=(largura, altura))
+        c.translate(largura, altura)
+        c.rotate(180)
+        c.setFont("Helvetica-Bold", 12)
+        y = altura - margem_topo
+        for linha in linhas:
+            c.drawString(5 * mm, y, linha)
+            y -= altura_linha
+        c.save()
+
+    def print_pdf(self, pdf_path, printer_name=None):
+        """
+        Imprime um PDF usando SumatraPDF.
+        Args:
+            pdf_path (str): Caminho do PDF
+            printer_name (str): Nome da impressora (opcional, usa self.name)
+        """
+        import subprocess
+        from pathlib import Path
+        sumatra_path = Path(__file__).parent / "SumatraPDF.exe"
+        if not sumatra_path.exists():
+            raise FileNotFoundError(
+                "SumatraPDF.exe não encontrado no caminho especificado.")
+        if not printer_name:
+            printer_name = self.name
+        args = [str(sumatra_path), "-print-to", printer_name, str(pdf_path)]
+        LOGGER.info(f"Imprimindo PDF: {args}")
+        subprocess.run(args, shell=False)
 
     @staticmethod
     def get_print_settings():

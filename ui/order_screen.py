@@ -260,18 +260,36 @@ class OrderScreen(QWidget):
 
     def on_customer_selected(self, customer_data):
         """Callback quando um cliente é selecionado."""
-        self.selected_customer = customer_data
-        customer_name = customer_data.get('name', '').strip()
-        customer_phone = customer_data.get('phone', '').strip()
-
-        if customer_name and customer_phone:
-            title = f"{customer_phone} - {customer_name}"
-        elif customer_phone:
-            title = customer_phone
-        elif customer_name:
-            title = customer_name
+        # Se for registro manual, garanta que nome e telefone estejam preenchidos
+        if customer_data.get('state') == 'register':
+            raw = customer_data.get('name', '').strip()
+            # Só números: telefone
+            if raw.isdigit():
+                name = ''
+                phone = raw
+            # Só letras (ou letras e espaços): nome
+            elif raw.replace(' ', '').isalpha():
+                name = raw
+                phone = ''
+            # Ambos: preenche os dois
+            else:
+                name = raw
+                phone = raw
+            customer_data['name'] = name
+            customer_data['phone'] = phone
+            title = name if name else phone
         else:
-            title = self.screen_title
+            customer_name = customer_data.get('name', '').strip()
+            customer_phone = customer_data.get('phone', '').strip()
+            if customer_name and customer_phone:
+                title = f"{customer_phone} - {customer_name}"
+            elif customer_phone:
+                title = customer_phone
+            elif customer_name:
+                title = customer_name
+            else:
+                title = self.screen_title
+        self.selected_customer = customer_data
 
         # Aplica elipse manualmente se necessário
         metrics = self.title_label.fontMetrics()
@@ -453,22 +471,71 @@ class OrderScreen(QWidget):
             )
             return
 
-        # Calcula o total atual
+        # Se for registro manual, registra o cliente no banco antes de finalizar
+        if self.selected_customer.get('state') == 'register':
+            from database.db import add_customer, get_customers
+            name = self.selected_customer.get('name', '').strip()
+            phone = self.selected_customer.get('phone', '').strip()
+            address = self.selected_customer.get('address', '').strip(
+            ) if 'address' in self.selected_customer else ''
+            neighborhood = self.selected_customer.get('neighborhood', '').strip(
+            ) if 'neighborhood' in self.selected_customer else ''
+            reference = self.selected_customer.get('reference', '').strip(
+            ) if 'reference' in self.selected_customer else ''
+            # Adiciona o cliente
+            add_customer(name, phone, address, neighborhood, reference)
+            # Busca o cliente recém-criado (por nome e telefone)
+            all_customers = get_customers()
+            found = None
+            for c in all_customers:
+                # c: (id, name, phone, address, neighborhood, reference)
+                c_name = c[1].strip() if c[1] else ""
+                c_phone = c[2].strip() if c[2] else ""
+                if c_name == name and c_phone == phone:
+                    found = c
+                    break
+            if found:
+                self.selected_customer['id'] = found[0]
+                self.selected_customer['name'] = found[1]
+                self.selected_customer['phone'] = found[2]
+                self.selected_customer['address'] = found[3]
+                self.selected_customer['neighborhood'] = found[4]
+                self.selected_customer['reference'] = found[5]
+                # Remove o estado register para não tentar registrar de novo
+                self.selected_customer.pop('state', None)
+                # Atualiza a lista de sugestões do CustomerSearchWidget
+                if hasattr(self, 'customer_search') and hasattr(self.customer_search, 'load_customers'):
+                    self.customer_search.load_customers()
+            else:
+                QMessageBox.critical(
+                    self, "Erro", "Não foi possível registrar o cliente no banco.")
+                return
+
+        # Calcula o total atual (base + opcionais + obrigatórios)
         total = 0.0
         for item in self.order_items:
             qtd = item.get('qty', 1)
             preco = item['item_data'][2] if len(item['item_data']) > 2 else 0.0
             total += qtd * preco
-            # Soma complementos se existirem
+            # Soma opcionais
             for add in item.get('additions', []):
                 add_qtd = add.get('qty', 1)
                 add_preco = add.get('price', 0.0)
                 total += add_qtd * add_preco
+            # Soma obrigatórios
+            for mand in item.get('mandatory_additions', []):
+                mand_preco = mand.get('price', 0.0)
+                total += mand_preco * qtd
 
         # Abre o modal de finalização
         from ui.finalize_order_dialog import FinalizeOrderDialog
         dialog = FinalizeOrderDialog(
             self.selected_customer, self.order_items, total, None)
+
+        # Conecta o sinal para atualizar sugestões de clientes
+        if hasattr(self.customer_search, 'load_customers'):
+            dialog.customer_registered.connect(
+                lambda _: self.customer_search.load_customers())
 
         if dialog.exec():
             # Limpa o pedido após finalizar
@@ -576,11 +643,15 @@ class OrderScreen(QWidget):
             qtd = item.get('qty', 1)
             preco = item['item_data'][2] if len(item['item_data']) > 2 else 0.0
             total += qtd * preco
-            # Soma complementos se existirem
+            # Soma opcionais
             for add in item.get('additions', []):
                 add_qtd = add.get('qty', 1)
                 add_preco = add.get('price', 0.0)
                 total += add_qtd * add_preco
+            # Soma obrigatórios
+            for mand in item.get('mandatory_additions', []):
+                mand_preco = mand.get('price', 0.0)
+                total += mand_preco * qtd
         self.total_label.setText(f"Total: R$ {total:,.2f}".replace(
             ",", "X").replace(".", ",").replace("X", "."))
 
@@ -609,6 +680,7 @@ class OrderScreen(QWidget):
                                f"Diferença: {time_diff:.3f}s")
                 return
         self._last_edit_time[row] = current_time
+        LOGGER.info("[EDIT_ITEM] Debounce ok. Continuando com edição.")
         LOGGER.info("[EDIT_ITEM] Debounce ok. Continuando com edição.")
 
         try:
