@@ -34,19 +34,20 @@ class AddItemDialog(QDialog):
         mandatory_ids = set(a['id']
                             for a in item_dict.get('mandatory_additions', []))
         for add in item_dict.get('additions', []):
-            if add.get('id') not in mandatory_ids:
-                text = f"{add.get('qty', 1)}x {add.get('name', '')} - R$ {add.get('price', 0.0)*add.get('qty', 1):.2f}"
-                item = QListWidgetItem(text)
-                item.setData(Qt.ItemDataRole.UserRole, add)
-                self.selected_additions.addItem(item)
-                self.selected_additions_data.append(add.copy())
+            text = f"{add.get('qty', 1)}x {add.get('name', '')} - R$ {add.get('price', 0.0)*add.get('qty', 1):.2f}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, add)
+            self.selected_additions.addItem(item)
+            self.selected_additions_data.append(add.copy())
 
         # Complementos obrigatórios (checkboxes)
         # Só é possível marcar após load_additions, então usamos singleShot para garantir
         from PySide6.QtCore import QTimer
 
         def marcar_obrigatorios():
-            obrigatorios = item_dict.get('mandatory_additions', [])
+            mandatory_selected = item_dict.get('mandatory_selected')
+            LOGGER.info(
+                f"[marcar_obrigatorios] mandatory_selected recebido: {mandatory_selected}")
             for i in range(self.mandatory_additions_layout.count()):
                 item = self.mandatory_additions_layout.itemAt(i)
                 if item and item.widget():
@@ -54,10 +55,21 @@ class AddItemDialog(QDialog):
                     checkbox = widget.findChild(QCheckBox)
                     if checkbox:
                         add_data = checkbox.property('addition_data')
-                        if add_data and any(a['id'] == add_data['id'] for a in obrigatorios):
-                            checkbox.setChecked(True)
-                        else:
-                            checkbox.setChecked(False)
+                        id_add = add_data.get('id') if add_data else None
+                        checked = False
+                        LOGGER.info(
+                            f"[marcar_obrigatorios] checkbox {i} id_add: {id_add}")
+                        # Só marca se mandatory_selected vier e o id estiver na lista
+                        if mandatory_selected is not None:
+                            if id_add in mandatory_selected:
+                                checked = True
+                                LOGGER.info(
+                                    f"[marcar_obrigatorios] Marcando checkbox {i} (id={id_add}) como True")
+                            else:
+                                LOGGER.info(
+                                    f"[marcar_obrigatorios] Checkbox {i} (id={id_add}) não está em mandatory_selected")
+                        # Se mandatory_selected não vier, não marca nenhum obrigatório
+                        checkbox.setChecked(checked)
         QTimer.singleShot(0, marcar_obrigatorios)
 
         # Recalcula o valor total ao abrir para edição
@@ -658,12 +670,14 @@ class AddItemDialog(QDialog):
         try:
             # Pega complementos obrigatórios selecionados
             mandatory_additions = self.get_selected_mandatory_additions()
+            mandatory_selected = [add.get('id') for add in mandatory_additions]
 
             # Monta dados do item completo
             item_complete = {
                 'item_data': self.item_data,
                 'additions': self.selected_additions_data.copy(),  # apenas opcionais
                 'mandatory_additions': mandatory_additions,         # apenas obrigatórios
+                'mandatory_selected': mandatory_selected,           # lista de IDs marcados
                 'observations': self.observations.toPlainText().strip(),
                 'total': self.calculate_total(),
                 'qty': self.item_qty.value()

@@ -22,6 +22,15 @@ def init_db():
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_item_specific_additions (
+                order_item_id INTEGER NOT NULL,
+                item_specific_addition_id INTEGER NOT NULL,
+                PRIMARY KEY (order_item_id, item_specific_addition_id),
+                FOREIGN KEY (order_item_id) REFERENCES order_items(id),
+                FOREIGN KEY (item_specific_addition_id) REFERENCES item_specific_additions(id)
+            )
+        ''')
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS categories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL
@@ -100,6 +109,7 @@ def init_db():
                 menu_item_id INTEGER NOT NULL,
                 quantity INTEGER NOT NULL DEFAULT 1,
                 unit_price REAL NOT NULL,
+                mandatory_selected TEXT,
                 FOREIGN KEY (order_id) REFERENCES orders(id),
                 FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
             )
@@ -108,6 +118,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS order_item_additions (
                 order_item_id INTEGER NOT NULL,
                 addition_id INTEGER NOT NULL,
+                qty INTEGER NOT NULL DEFAULT 1,
                 PRIMARY KEY (order_item_id, addition_id),
                 FOREIGN KEY (order_item_id) REFERENCES order_items(id),
                 FOREIGN KEY (addition_id) REFERENCES additions(id)
@@ -153,6 +164,21 @@ def init_db():
                 ADD COLUMN is_mandatory BOOLEAN DEFAULT 0
             ''')
 
+        # Migração: adicionar coluna mandatory_selected se não existir
+        cursor.execute("PRAGMA table_info(order_items)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'mandatory_selected' not in columns:
+            cursor.execute('''
+                ALTER TABLE order_items ADD COLUMN mandatory_selected TEXT
+            ''')
+        # Migração: adicionar coluna observations se não existir
+        cursor.execute("PRAGMA table_info(order_items)")
+        columns = [column[1] for column in cursor.fetchall()]
+        if 'observations' not in columns:
+            cursor.execute('''
+                ALTER TABLE order_items ADD COLUMN observations TEXT
+            ''')
+
         # Migração: adicionar coluna neighborhood_id se não existir
         cursor.execute("PRAGMA table_info(customers)")
         columns = [column[1] for column in cursor.fetchall()]
@@ -163,9 +189,8 @@ def init_db():
             ''')
         conn.commit()
 
+
 # CRUD para categorias
-
-
 def add_category(name):
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -512,6 +537,130 @@ def get_customer_by_phone(phone):
 
 
 # CRUD para pedidos
+
+def get_orders_today():
+    """Retorna os pedidos feitos hoje, com customer_id, total e itens."""
+    import datetime
+    from datetime import datetime as dt
+
+    # Usa horário local para garantir pedidos do dia
+    today = dt.now().date()
+    today_str = today.strftime('%Y-%m-%d')
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id, customer_id, total_amount
+            FROM orders
+            WHERE DATE(order_date) = ?
+            ORDER BY datetime(order_date, 'localtime') DESC
+        ''', (today_str,))
+        orders = []
+        for order_id, customer_id, total in cursor.fetchall():
+            # Busca itens do pedido com todos os detalhes
+            cursor.execute('''
+                SELECT oi.id, oi.menu_item_id, oi.quantity, oi.unit_price, m.name, m.category_id, c.name as category_name, oi.mandatory_selected, oi.observations
+                FROM order_items oi
+                JOIN menu_items m ON oi.menu_item_id = m.id
+                JOIN categories c ON m.category_id = c.id
+                WHERE oi.order_id = ?
+            ''', (order_id,))
+            items = []
+            for row in cursor.fetchall():
+                order_item_id, menu_item_id, quantity, unit_price, item_name, category_id, category_name, mandatory_selected_str, observations = row
+                # Buscar descrição do item
+                cursor.execute(
+                    'SELECT description FROM menu_items WHERE id = ?', (menu_item_id,))
+                desc_row = cursor.fetchone()
+                item_description = desc_row[0] if desc_row and desc_row[0] else ''
+                # Observações do item (se existir coluna, buscar; senão, vazio)
+                cursor.execute('''
+                    PRAGMA table_info(order_items)
+                ''')
+                columns = [col[1] for col in cursor.fetchall()]
+                if 'observations' in columns:
+                    cursor.execute(
+                        'SELECT observations FROM order_items WHERE id = ?', (order_item_id,))
+                    obs_row = cursor.fetchone()
+                    observations = obs_row[0] if obs_row and obs_row[0] else ''
+                else:
+                    observations = ''
+
+                # Adicionais com quantidade correta do banco
+                cursor.execute('''
+                    SELECT a.id, a.name, a.price, oia.qty FROM order_item_additions oia
+                    JOIN additions a ON oia.addition_id = a.id
+                    WHERE oia.order_item_id = ?
+                ''', (order_item_id,))
+                additions = []
+                for add_id, add_name, add_price, add_qty in cursor.fetchall():
+                    additions.append(
+                        {'id': add_id, 'name': add_name, 'price': add_price, 'qty': add_qty, 'total': add_price * add_qty})
+
+                # Todos obrigatórios do cardápio
+                cursor.execute('''
+                    SELECT id, name, price FROM item_specific_additions WHERE item_id = ? AND is_mandatory = 1
+                ''', (menu_item_id,))
+                all_mandatory_additions = []
+                for mand_id, mand_name, mand_price in cursor.fetchall():
+                    all_mandatory_additions.append(
+                        {'id': mand_id, 'name': mand_name, 'price': mand_price})
+
+                # Apenas obrigatórios selecionados para o item do pedido
+                mandatory_additions = []
+                mandatory_selected = []
+                cursor.execute('''
+                    SELECT isa.id, isa.name, isa.price
+                    FROM order_item_specific_additions oisa
+                    JOIN item_specific_additions isa ON oisa.item_specific_addition_id = isa.id
+                    WHERE oisa.order_item_id = ?
+                ''', (order_item_id,))
+                for mand_id, mand_name, mand_price in cursor.fetchall():
+                    mandatory_additions.append(
+                        {'id': mand_id, 'name': mand_name, 'price': mand_price})
+                    mandatory_selected.append(mand_id)
+
+                # Monta item_data igual ao usado na tela
+                item_data = [menu_item_id, item_name, unit_price,
+                             category_id, category_name, item_description]
+                # Lista de IDs dos obrigatórios selecionados (preferencialmente da coluna mandatory_selected)
+                if mandatory_selected_str:
+                    mandatory_selected = [
+                        int(mid) for mid in mandatory_selected_str.split(',') if mid.strip()]
+                else:
+                    mandatory_selected = [m['id'] for m in mandatory_additions]
+                print(
+                    f"\033[92mItem: {item_name}, Mandatory: {mandatory_selected}\033[0m")
+                items.append({
+                    'menu_item_id': menu_item_id,
+                    'qty': quantity,
+                    'unit_price': unit_price,
+                    'item_data': item_data,
+                    'additions': additions,
+                    'mandatory_additions': mandatory_additions,
+                    'mandatory_selected': mandatory_selected,
+                    'all_mandatory_additions': all_mandatory_additions,
+                    'observations': observations
+                })
+            orders.append({
+                'customer_id': customer_id,
+                'total': total,
+                'items': items
+            })
+        return orders
+
+
+def get_customer_by_id(customer_id):
+    """Retorna um dict com nome e telefone do cliente pelo id."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT name, phone FROM customers WHERE id = ?
+        ''', (customer_id,))
+        row = cursor.fetchone()
+        if row:
+            return {'name': row[0], 'phone': row[1], 'id': customer_id}
+        return None
+
 
 def add_order(customer_id=None, total_amount=0.0, notes=''):
     with get_connection() as conn:
@@ -865,31 +1014,41 @@ def save_order(customer_id, items_data, total_amount, notes=""):
         cursor = conn.cursor()
 
         # Cria o pedido
+        import datetime
+        order_date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('''
-            INSERT INTO orders (customer_id, total_amount, notes)
-            VALUES (?, ?, ?)
-        ''', (customer_id, total_amount, notes))
+            INSERT INTO orders (customer_id, order_date, total_amount, notes)
+            VALUES (?, ?, ?, ?)
+        ''', (customer_id, order_date, total_amount, notes))
 
         order_id = cursor.lastrowid
 
         # Adiciona os itens do pedido
         for item_data in items_data:
+            mandatory_selected_str = None
+            if 'mandatory_selected' in item_data and item_data['mandatory_selected']:
+                mandatory_selected_str = ','.join(
+                    str(mid) for mid in item_data['mandatory_selected'])
+            observations = item_data.get('observations', '')
             cursor.execute('''
                 INSERT INTO order_items
-                (order_id, menu_item_id, quantity, unit_price)
-                VALUES (?, ?, ?, ?)
+                (order_id, menu_item_id, quantity, unit_price, mandatory_selected, observations)
+                VALUES (?, ?, ?, ?, ?, ?)
             ''', (order_id, item_data['menu_item_id'],
-                  item_data['quantity'], item_data['unit_price']))
+                  item_data['quantity'], item_data['unit_price'], mandatory_selected_str, observations))
 
             order_item_id = cursor.lastrowid
 
-            # Adiciona os adicionais do item
-            for addition_id in item_data.get('additions', []):
+            # Adiciona os adicionais do item, agora com quantidade
+            additions = item_data.get('additions', [])
+            for add in additions:
+                addition_id = add.get('id') if isinstance(add, dict) else add
+                qty = add.get('qty', 1) if isinstance(add, dict) else 1
                 cursor.execute('''
-                    INSERT INTO order_item_additions
-                    (order_item_id, addition_id)
-                    VALUES (?, ?)
-                ''', (order_item_id, addition_id))
+                        INSERT INTO order_item_additions
+                        (order_item_id, addition_id, qty)
+                        VALUES (?, ?, ?)
+                    ''', (order_item_id, addition_id, qty))
 
         conn.commit()
         return order_id

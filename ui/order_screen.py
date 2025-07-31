@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QHeaderView,
                                QVBoxLayout, QWidget)
 
 # Importa as configurações de impressão
-from database.db import get_system_setting
+from database.db import (get_all_additions_for_item_with_mandatory_info,
+                         get_system_setting)
 from ui.add_item_dialog import AddItemDialog
 from ui.widgets.search_widgets import CustomerSearchWidget, ItemSearchWidget
 from utils.log_utils import get_logger
@@ -20,6 +21,157 @@ LOGGER = get_logger(__name__)
 
 
 class OrderScreen(QWidget):
+    def show_history_dialog(self):
+        print("Exibindo histórico de pedidos do dia")
+        from PySide6.QtWidgets import (QDialog, QHBoxLayout, QPushButton,
+                                       QTableWidget, QTableWidgetItem,
+                                       QVBoxLayout)
+
+        from database.db import get_customer_by_id, get_orders_today
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Histórico de pedidos do dia")
+        dialog.resize(520, 400)
+        layout = QVBoxLayout()
+        dialog.setLayout(layout)
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(
+            ["Nome do cliente", "Celular", "Valor total", "Ação"])
+        orders = get_orders_today()  # Mostra apenas pedidos do dia, formato dict
+        table.setRowCount(len(orders))
+        for idx, order in enumerate(orders):
+            # order: dict com chaves 'customer_id', 'total', 'items', etc.
+            customer = get_customer_by_id(order['customer_id'])
+            name = customer['name'] if customer else "-"
+            phone = customer['phone'] if customer else "-"
+            total = f"R$ {order['total']:.2f}" if 'total' in order else "-"
+            table.setItem(idx, 0, QTableWidgetItem(name))
+            table.setItem(idx, 1, QTableWidgetItem(phone))
+            table.setItem(idx, 2, QTableWidgetItem(total))
+            btn = QPushButton("Preencher")
+
+            def fill_order(o=order, c=customer):
+                # Busca registro completo do cliente em self.customers
+                customer_id = c.get('id') if isinstance(c, dict) else (
+                    c[0] if isinstance(c, (list, tuple)) and len(c) > 0 else None)
+                found = None
+                if customer_id:
+                    for cust in self.customers:
+                        if isinstance(cust, dict) and cust.get('id') == customer_id:
+                            found = cust
+                            break
+                        elif isinstance(cust, (list, tuple)) and len(cust) > 0 and cust[0] == customer_id:
+                            found = {
+                                'id': cust[0],
+                                'name': cust[1],
+                                'phone': cust[2],
+                                'street': cust[3] if len(cust) > 3 else '',
+                                'number': cust[4] if len(cust) > 4 else '',
+                                'neighborhood_id': cust[5] if len(cust) > 5 else '',
+                                'reference': cust[6] if len(cust) > 6 else '',
+                                'neighborhood': cust[7] if len(cust) > 7 else ''
+                            }
+                            break
+                if found:
+                    c = found
+                # Preenche o campo de busca com nome ou telefone
+                text = c.get('name') or c.get('phone') or ''
+                self.customer_search.customer_lineedit.setText(text)
+                # Força abertura da lista de sugestões e seleciona o primeiro item
+                if hasattr(self.customer_search, 'suggestions_list'):
+                    suggestions = self.customer_search.suggestions_list
+                    if suggestions.count() > 0:
+                        suggestions.setCurrentRow(0)
+                        suggestions.itemClicked.emit(suggestions.item(0))
+                # Preenche os itens do pedido, garantindo que obrigatórios estejam corretos
+                itens_corrigidos = []
+                for item in o['items']:
+                    # Usa mandatory_selected para marcar os obrigatórios
+                    mandatory_selected_ids = item.get('mandatory_selected', [])
+                    obrigatorios = []
+                    for mand in item.get('mandatory_additions', []):
+                        obrigatorio = {
+                            'id': mand.get('id'),
+                            'name': mand.get('name'),
+                            'price': mand.get('price', 0.0),
+                            'qty': mand.get('qty', 1),
+                            'total': mand.get('total', mand.get('price', 0.0) * mand.get('qty', 1)),
+                            'selected': mand.get('id') in mandatory_selected_ids
+                        }
+                        obrigatorios.append(obrigatorio)
+                    # Corrige opcionais também
+                    opcionais = []
+                    for add in item.get('additions', []):
+                        opcionais.append({
+                            'id': add.get('id'),
+                            'name': add.get('name'),
+                            'price': add.get('price', 0.0),
+                            'qty': add.get('qty', 1),
+                            'total': add.get('total', add.get('price', 0.0) * add.get('qty', 1))
+                        })
+                    item_corrigido = {
+                        'item_data': item.get('item_data'),
+                        'qty': item.get('qty', 1),
+                        'observations': item.get('observations', ''),
+                        'additions': opcionais,
+                        'mandatory_additions': obrigatorios,
+                        'mandatory_selected': mandatory_selected_ids,
+                    }
+                    # Soma total do item considerando apenas obrigatórios selecionados
+                    total_item = 0.0
+                    qtd = item_corrigido['qty']
+                    preco_base = item_corrigido['item_data'][2] if len(
+                        item_corrigido['item_data']) > 2 else 0.0
+                    total_item += qtd * preco_base
+                    # Soma opcionais
+                    for add in item_corrigido['additions']:
+                        total_item += add.get('qty', 1) * add.get('price', 0.0)
+                    # Soma apenas obrigatórios selecionados
+                    for mand in item_corrigido['mandatory_additions']:
+                        if mand.get('selected'):
+                            total_item += mand.get('price',
+                                                   0.0) * mand.get('qty', 1)
+                    item_corrigido['total'] = total_item
+                    itens_corrigidos.append(item_corrigido)
+                print(f'\033[92m{itens_corrigidos}\033[0m')
+                for item in itens_corrigidos:
+                    mandatorys = get_all_additions_for_item_with_mandatory_info(
+                        item['item_data'][0], item['item_data'][3])
+                    mandatorys = [
+                        list(mand) for mand in mandatorys if mand[0] in item['mandatory_selected'] if mand[3] == 1
+                    ]
+                    for mand in mandatorys:
+                        mand_dict = {
+                            'id': mand[0],
+                            'name': mand[1],
+                            'price': mand[2],
+                            'source': mand[3]
+                        }
+                        item['mandatory_additions'].append(mand_dict)
+                    print(f'\033[92m {item}\033[0m')
+                self.order_items = itens_corrigidos
+                LOGGER.info(
+                    f"[HISTORICO] Itens restaurados: {self.order_items}")
+                self.refresh_order_table()
+                self.update_total_label()
+                dialog.accept()
+            btn.clicked.connect(lambda checked, o=order,
+                                c=customer: fill_order(o, c))
+            table.setCellWidget(idx, 3, btn)
+        layout.addWidget(table)
+        close_btn = QPushButton("Fechar")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        dialog.exec()
+
+    def keyPressEvent(self, event):
+        # Detect Ctrl+Enter and trigger finalize_button click
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.modifiers() & Qt.ControlModifier:
+            if hasattr(self, 'finalize_button') and self.finalize_button.isEnabled():
+                self.finalize_button.click()
+        else:
+            super().keyPressEvent(event)
+
     def refresh_order_table(self):
         """Força a atualização completa da tabela de itens do pedido."""
         self.order_table.setRowCount(0)
@@ -100,16 +252,23 @@ class OrderScreen(QWidget):
         # Botão Limpar Pedido (será escondido quando sugestões aparecerem)
         self.clear_order_button = QPushButton("Limpar Pedido")
         self.clear_order_button.clicked.connect(self.clear_order)
+        self.history_button = QPushButton("Histórico")
+        self.history_button.clicked.connect(self.show_history_dialog)
         clear_layout = QHBoxLayout()
         clear_layout.addWidget(self.clear_order_button,
                                alignment=Qt.AlignmentFlag.AlignLeft)
+        clear_layout.addStretch(1)
+        clear_layout.addWidget(self.history_button,
+                               alignment=Qt.AlignmentFlag.AlignRight)
         self.clear_button_layout = clear_layout
         left_col.addLayout(clear_layout)
 
-        # Adiciona o botão à lista de widgets que serão escondidos
+        # Adiciona os botões à lista de widgets que serão escondidos
         self.left_column_widgets.append(self.item_search)
         self.left_column_widgets.append(self.clear_order_button)
+        self.left_column_widgets.append(self.history_button)
         self.left_column_widgets_for_items.append(self.clear_order_button)
+        self.left_column_widgets_for_items.append(self.history_button)
 
         # Desabilita o campo de item até que um cliente seja selecionado
         self.item_search.item_lineedit.setEnabled(False)
@@ -233,7 +392,7 @@ class OrderScreen(QWidget):
             QSizePolicy.Expanding, QSizePolicy.Preferred)
         total_layout.addWidget(self.total_label)
 
-        self.finalize_button = QPushButton("Finalizar Pedido")
+        self.finalize_button = QPushButton("Finalizar [ctrl+enter]")
         self.finalize_button.clicked.connect(self.finalize_order)
         self.finalize_button.setMinimumWidth(120)
         total_layout.addWidget(self.finalize_button)
@@ -261,8 +420,10 @@ class OrderScreen(QWidget):
     def on_customer_selected(self, customer_data):
         """Callback quando um cliente é selecionado."""
         # Se for registro manual, garanta que nome e telefone estejam preenchidos
+        if customer_data is None:
+            customer_data = {'name': '', 'phone': ''}
         if customer_data.get('state') == 'register':
-            raw = customer_data.get('name', '').strip()
+            raw = (customer_data.get('name') or '').strip()
             # Só números: telefone
             if raw.isdigit():
                 name = ''
@@ -279,8 +440,8 @@ class OrderScreen(QWidget):
             customer_data['phone'] = phone
             title = name if name else phone
         else:
-            customer_name = customer_data.get('name', '').strip()
-            customer_phone = customer_data.get('phone', '').strip()
+            customer_name = (customer_data.get('name') or '').strip()
+            customer_phone = (customer_data.get('phone') or '').strip()
             if customer_name and customer_phone:
                 title = f"{customer_phone} - {customer_name}"
             elif customer_phone:
@@ -366,6 +527,7 @@ class OrderScreen(QWidget):
     def add_item_to_order(self, item_complete):
         """Adiciona item completo ao pedido."""
         LOGGER.info("[ADD_ITEM] Adicionando novo item à ordem")
+        LOGGER.info(f"[ADD_ITEM] Dados completos do item: {item_complete}")
 
         try:
             row = self.order_table.rowCount()
@@ -382,9 +544,19 @@ class OrderScreen(QWidget):
             action_item = QTableWidgetItem("🖊️ Editar")
             action_item.setToolTip("Clique duplo para editar este item")
 
-            # Armazena dados completos do item
-            self.order_items.append(item_complete)
-            LOGGER.info(f"[ADD_ITEM] Item data armazenado para row {row}")
+            # Monta dados do item completo no formato desejado
+            item_to_save = {
+                'item_data': item_complete.get('item_data'),
+                'additions': item_complete.get('additions', []).copy(),
+                'mandatory_additions': item_complete.get('mandatory_additions', []),
+                'mandatory_selected': item_complete.get('mandatory_selected', []),
+                'observations': item_complete.get('observations', ''),
+                'total': item_complete.get('total', 0.0),
+                'qty': item_complete.get('qty', 1)
+            }
+            self.order_items.append(item_to_save)
+            LOGGER.info(
+                f"[ADD_ITEM] Item data armazenado para row {row} (formato padrao)")
 
             # Insere os itens na tabela (SEM botões widgets)
             self.order_table.setItem(row, 0, qtd_item)
@@ -459,6 +631,7 @@ class OrderScreen(QWidget):
 
     def finalize_order(self):
         """Finaliza o pedido."""
+        print(f'\033[93m{self.order_items}\033[0m')
         if not self.selected_customer:
             QMessageBox.warning(
                 self, "Aviso", "Selecione um cliente primeiro!"
@@ -690,6 +863,22 @@ class OrderScreen(QWidget):
             item_data = item_dict['item_data']
             item_name = item_data[1] if len(item_data) > 1 else 'N/A'
             LOGGER.info(f"[EDIT_ITEM] item_data obtido: {item_name}")
+            LOGGER.info(f"[EDIT_ITEM] item_dict completo: {item_dict}")
+
+            # Reconstrói o dicionário do item para edição, mantendo o campo mandatory_selected
+            new_item_dict = {
+                'item_data': item_data,
+                'qty': item_dict.get('qty', 1),
+                'observations': item_dict.get('observations', ''),
+                'additions': item_dict.get('additions', []).copy(),
+                'mandatory_additions': item_dict.get('mandatory_additions', []).copy(),
+                'mandatory_selected': item_dict.get('mandatory_selected', []).copy(),
+                'total': item_dict.get('total', 0.0)
+            }
+            LOGGER.info(
+                f"[EDIT_ITEM] mandatory_selected passado: {new_item_dict['mandatory_selected']}")
+            LOGGER.info(
+                f"[EDIT_ITEM] new_item_dict reconstruído: {new_item_dict}")
 
             # Cria o AddItemDialog pré-preenchido
             from ui.add_item_dialog import AddItemDialog
@@ -701,18 +890,24 @@ class OrderScreen(QWidget):
             self._editing_dialog = edit_dialog
             LOGGER.info("[EDIT_ITEM] _editing_dialog definido")
 
-            # Preenche os campos do dialog com os dados atuais
+            # Preenche os campos do dialog com os dados atuais, incluindo complementos obrigatórios e opcionais
             if hasattr(edit_dialog, 'set_initial_state'):
-                edit_dialog.set_initial_state(item_dict)
+                edit_dialog.set_initial_state(new_item_dict)
                 LOGGER.info(
-                    "[EDIT_ITEM] Estado inicial preenchido via set_initial_state")
+                    "[EDIT_ITEM] Estado inicial preenchido via set_initial_state (com complementos robustos)")
             else:
-                # Fallback para versões antigas
-                qty = item_dict.get('qty', 1)
+                qty = new_item_dict.get('qty', 1)
                 edit_dialog.item_qty.setValue(qty)
-                if 'observations' in item_dict:
-                    edit_dialog.observations.setText(item_dict['observations'])
-                LOGGER.info("[EDIT_ITEM] Estado inicial preenchido (fallback)")
+                if 'observations' in new_item_dict:
+                    edit_dialog.observations.setText(
+                        new_item_dict['observations'])
+                if hasattr(edit_dialog, 'set_mandatory_additions') and 'mandatory_additions' in new_item_dict:
+                    edit_dialog.set_mandatory_additions(
+                        new_item_dict['mandatory_additions'])
+                if hasattr(edit_dialog, 'set_additions') and 'additions' in new_item_dict:
+                    edit_dialog.set_additions(new_item_dict['additions'])
+                LOGGER.info(
+                    "[EDIT_ITEM] Estado inicial preenchido (fallback, com complementos robustos)")
 
             def update_item_on_save(edited_item):
                 try:

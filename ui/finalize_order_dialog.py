@@ -333,7 +333,7 @@ class FinalizeOrderDialog(QDialog):
                 self.reference_input.setFocus()
                 event.accept()
             elif widget == self.reference_input:
-                self.neighborhood_button.setFocus()
+                self.payment_button.setFocus()
                 event.accept()
         else:
             QLineEdit.keyPressEvent(widget, event)
@@ -517,11 +517,18 @@ class FinalizeOrderDialog(QDialog):
             # Prepara dados dos itens para o banco
             items_data = []
             for item in self.order_items:
+                additions = []
+                for add in item.get('additions', []):
+                    additions.append(
+                        {'id': add.get('id'), 'qty': add.get('qty', 1)})
                 item_data = {
                     'menu_item_id': item['item_data'][0],  # ID do item
                     'quantity': item.get('qty', 1),
                     'unit_price': item['item_data'][2],  # Preço do item
-                    'additions': [add.get('id') for add in item.get('additions', [])]
+                    'additions': additions,
+                    'mandatory_selected': item.get('mandatory_selected', []),
+                    'observations': item.get('observations', ''),
+                    # Se quiser repassar outros campos, adicione aqui
                 }
                 items_data.append(item_data)
 
@@ -541,6 +548,8 @@ class FinalizeOrderDialog(QDialog):
                 order_notes = "Retirada"
 
             # Salva o pedido
+            print(
+                f'''\033[92mSaving order for customer ID: {customer_id}, items: {items_data}, total: {total_to_save}, notes: {order_notes}\033[0m''')
             order_id = save_order(customer_id, items_data,
                                   total_to_save, order_notes)
             LOGGER.info(f"Pedido {order_id} salvo com sucesso")

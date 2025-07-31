@@ -144,59 +144,6 @@ class SettingsDialog(QDialog):
         print_settings_layout = QVBoxLayout()
         print_settings_group.setLayout(print_settings_layout)
 
-        # Margem da impressão
-        margin_layout = QHBoxLayout()
-        margin_layout.addWidget(QLabel("Margem (mm):"))
-        self.margin_spinbox = QSpinBox()
-        self.margin_spinbox.setMinimum(0)
-        self.margin_spinbox.setMaximum(50)
-        self.margin_spinbox.setValue(5)
-        self.margin_spinbox.setSuffix(" mm")
-        margin_layout.addWidget(self.margin_spinbox)
-        margin_layout.addStretch()
-        print_settings_layout.addLayout(margin_layout)
-
-        # Configurações de fonte
-        font_layout = QHBoxLayout()
-        # Tipo de fonte (A/B)
-        font_type_label = QLabel("Tipo de Fonte:")
-        self.font_type_combo = QComboBox()
-        self.font_type_combo.addItems(["A (12x24)", "B (9x17)"])
-        font_layout.addWidget(font_type_label)
-        font_layout.addWidget(self.font_type_combo)
-
-        # Tamanho ESC/POS (normal, duplo, triplo)
-        escpos_size_label = QLabel("Tamanho ESC/POS:")
-        self.escpos_size_combo = QComboBox()
-        self.escpos_size_combo.addItems(["normal", "duplo", "triplo"])
-        font_layout.addWidget(escpos_size_label)
-        font_layout.addWidget(self.escpos_size_combo)
-
-        # Negrito
-        self.bold_checkbox = QCheckBox("Negrito (ESC/POS)")
-        font_layout.addWidget(self.bold_checkbox)
-
-        # Adiciona o layout de fonte ao layout principal da aba
-        print_settings_layout.addLayout(font_layout)
-
-        # Configuração de tamanho de impressão
-        size_layout = QHBoxLayout()
-        size_label = QLabel("Tamanho de Impressão:")
-        self.print_size_combo = QComboBox()
-        self.print_size_combo.addItems([
-            "Normal",
-            "Duplo Altura",
-            "Duplo Largura",
-            "Duplo",
-            "Intermediário Altura",
-            "Intermediário Largura",
-            "Intermediário",
-            "Triplo"
-        ])
-        size_layout.addWidget(size_label)
-        size_layout.addWidget(self.print_size_combo)
-        print_settings_layout.addLayout(size_layout)
-
         # Imprimir cabeçalho da empresa
         self.print_header_checkbox = QCheckBox(
             "Incluir cabeçalho da empresa nos pedidos")
