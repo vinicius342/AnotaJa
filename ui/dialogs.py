@@ -383,8 +383,15 @@ class ItemAdditionsDialog(QDialog):
         """Salva as seleções no banco de dados"""
         from database.db import (set_item_mandatory_additions,
                                  set_item_specific_mandatory_additions)
+        from utils.log_utils import get_logger
+
+        logger = get_logger(__name__)
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: Iniciando salvamento para item {self.item_id}")
 
         selected_ids = self.get_selected_additions()
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: IDs selecionados pelo usuário: {selected_ids}")
 
         # Separa IDs por tipo de complemento
         category_addition_ids = []
@@ -394,20 +401,39 @@ class ItemAdditionsDialog(QDialog):
             if checkbox.isChecked() and hasattr(checkbox, 'comp_data'):
                 comp_id = self.addition_ids[i]
                 source = checkbox.comp_data.get('source', '')
+                logger.info(
+                    f"🔧 SAVE_SELECTIONS: Checkbox {i} marcado - ID: {comp_id}, Source: {source}")
 
                 if source == 'category':
                     category_addition_ids.append(comp_id)
                 elif source == 'item_specific':
                     specific_addition_ids.append(comp_id)
 
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: IDs de categoria separados: {category_addition_ids}")
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: IDs específicos separados: {specific_addition_ids}")
+
+        # SEMPRE salva ambos os tipos, mesmo que uma lista esteja vazia
+        # Isso é necessário para manter a consistência e não desmarcar
+        # obrigatórios existentes de outros tipos
+
         # Salva obrigatoriedade dos complementos da categoria
-        if category_addition_ids:
-            set_item_mandatory_additions(self.item_id, category_addition_ids)
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: Chamando set_item_mandatory_additions({self.item_id}, {category_addition_ids})")
+        set_item_mandatory_additions(self.item_id, category_addition_ids)
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: set_item_mandatory_additions executado")
 
         # Salva obrigatoriedade dos complementos específicos
-        if specific_addition_ids:
-            set_item_specific_mandatory_additions(
-                self.item_id, specific_addition_ids)
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: Chamando set_item_specific_mandatory_additions({self.item_id}, {specific_addition_ids})")
+        set_item_specific_mandatory_additions(
+            self.item_id, specific_addition_ids)
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: set_item_specific_mandatory_additions executado")
+        logger.info(
+            f"🔧 SAVE_SELECTIONS: Salvamento concluído para item {self.item_id}")
 
 
 class MenuEditDialogItem(QWidget):
@@ -556,12 +582,45 @@ class MenuEditDialogItem(QWidget):
 
     def open_item_additions_dialog(self):
         """Abre diálogo para gerenciar complementos específicos do item"""
+        from utils.log_utils import get_logger
+        logger = get_logger(__name__)
+
         if self.item_id is not None:
+            logger.info(
+                f"🔧 MENU_EDIT: Abrindo diálogo de complementos para item {self.item_id} ({self.name})")
+
+            # Log estado ANTES do diálogo
+            from database.db import (
+                get_all_additions_for_item_with_mandatory_info,
+                get_category_id)
+            category_id = get_category_id(self.category)
+            before_additions = get_all_additions_for_item_with_mandatory_info(
+                self.item_id, category_id)
+            mandatory_before = [aid for aid, name, price,
+                                is_mandatory, source in before_additions if is_mandatory]
+            logger.info(
+                f"🔧 ANTES do diálogo - IDs obrigatórios: {mandatory_before}")
+
             dialog = ItemAdditionsDialog(self.name, self.item_id, None)
             if dialog.exec():
+                logger.info(
+                    f"🔧 MENU_EDIT: Usuário clicou OK no diálogo de complementos")
                 dialog.save_selections()
+                logger.info(f"🔧 MENU_EDIT: save_selections() executado")
+
+                # Log estado DEPOIS do save_selections
+                after_additions = get_all_additions_for_item_with_mandatory_info(
+                    self.item_id, category_id)
+                mandatory_after = [
+                    aid for aid, name, price, is_mandatory, source in after_additions if is_mandatory]
+                logger.info(
+                    f"🔧 DEPOIS do save_selections - IDs obrigatórios: {mandatory_after}")
+
                 # Atualiza a visualização após salvar
                 self.update_additions_view(self.category)
+            else:
+                logger.info(
+                    f"🔧 MENU_EDIT: Usuário cancelou o diálogo de complementos")
         else:
             QMessageBox.warning(
                 self, "Erro",

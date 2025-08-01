@@ -77,12 +77,16 @@ class OrderScreen(QWidget):
                 # Preenche o campo de busca com nome ou telefone
                 text = c.get('name') or c.get('phone') or ''
                 self.customer_search.customer_lineedit.setText(text)
-                # Força abertura da lista de sugestões e seleciona o primeiro item
+                # Força abertura da lista de sugestões e seleciona o item cujo texto é igual ao 'text'
                 if hasattr(self.customer_search, 'suggestions_list'):
                     suggestions = self.customer_search.suggestions_list
                     if suggestions.count() > 0:
-                        suggestions.setCurrentRow(0)
-                        suggestions.itemClicked.emit(suggestions.item(0))
+                        for i in range(suggestions.count()):
+                            item = suggestions.item(i)
+                            if item.text() == text:
+                                suggestions.setCurrentRow(i)
+                                suggestions.itemClicked.emit(item)
+                                break
                 # Preenche os itens do pedido, garantindo que obrigatórios estejam corretos
                 itens_corrigidos = []
                 for item in o['items']:
@@ -155,6 +159,8 @@ class OrderScreen(QWidget):
                 self.refresh_order_table()
                 self.update_total_label()
                 dialog.accept()
+                if self.selected_customer is not None:
+                    self.selected_customer['state'] = 'history'
             btn.clicked.connect(lambda checked, o=order,
                                 c=customer: fill_order(o, c))
             table.setCellWidget(idx, 3, btn)
@@ -646,6 +652,7 @@ class OrderScreen(QWidget):
 
         # Se for registro manual, registra o cliente no banco antes de finalizar
         if self.selected_customer.get('state') == 'register':
+            print("Registrando cliente no banco...")
             from database.db import add_customer, get_customers
             name = self.selected_customer.get('name', '').strip()
             phone = self.selected_customer.get('phone', '').strip()

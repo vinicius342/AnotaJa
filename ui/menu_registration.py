@@ -500,32 +500,24 @@ class MenuRegistrationWindow(QDialog):
         # Buscar os IDs dos adicionais vinculados à categoria
         addition_ids = get_category_addition_ids(category_id)
 
-        # Salvar o item com os IDs da categoria e obrigatórios
+        # Processa os IDs obrigatórios para separar categorias de específicos
+        category_mandatory_ids = []
+
+        for comp_id in mandatory_complement_ids:
+            if isinstance(comp_id, int):
+                # ID de categoria
+                category_mandatory_ids.append(comp_id)
+            # IDs temporários serão processados depois de criar o item
+
+        # Salvar o item com os IDs da categoria e obrigatórios de categoria
         item_id = add_menu_item(name, price, category_id,
                                 description, addition_ids,
-                                mandatory_complement_ids)
+                                category_mandatory_ids)
 
         # Salvar complementos específicos do item no banco
-        specific_complement_ids = []
         if self.item_specific_complements:
-            specific_complement_ids = self.save_item_specific_complements(
-                item_id)
-        if mandatory_complement_ids:
-            # Filtra apenas IDs válidos (numéricos) para complementos da categoria
-            valid_ids = []
-            for comp_id in mandatory_complement_ids:
-                if isinstance(comp_id, int):
-                    valid_ids.append(comp_id)
-                elif isinstance(comp_id, str) and comp_id.startswith('temp_'):
-                    # Para complementos específicos temporários, usa os IDs salvos
-                    try:
-                        temp_index = int(comp_id.split('_')[1])
-                        if temp_index < len(specific_complement_ids):
-                            valid_ids.append(
-                                specific_complement_ids[temp_index])
-                    except (ValueError, IndexError):
-                        logger.error(
-                            f"Erro ao processar complemento temporário: {comp_id}")
+            self.save_item_specific_complements(
+                item_id, mandatory_complement_ids)
 
         # Limpa os campos
         self.name_input.clear()
@@ -553,7 +545,7 @@ class MenuRegistrationWindow(QDialog):
         # Retorna o foco para o campo de nome do item
         self.name_input.setFocus()
 
-    def save_item_specific_complements(self, item_id):
+    def save_item_specific_complements(self, item_id, mandatory_complement_ids=None):
         """Salva os complementos específicos do item no banco de dados"""
         from database.db import set_item_specific_additions
 
@@ -561,9 +553,9 @@ class MenuRegistrationWindow(QDialog):
             if not self.item_specific_complements:
                 return []
 
-            # Primeiro, atualiza os valores de mandatory dos complementos
+            # Atualiza os valores de mandatory dos complementos específicos
             # baseado nos checkboxes selecionados
-            if hasattr(self, 'mandatory_complements_checkboxes'):
+            if hasattr(self, 'mandatory_complements_checkboxes') and mandatory_complement_ids:
                 for checkbox in self.mandatory_complements_checkboxes:
                     comp_data = getattr(checkbox, 'comp_data', None)
                     if comp_data and comp_data['source'] == 'specific':
@@ -573,7 +565,8 @@ class MenuRegistrationWindow(QDialog):
                             complements_list = self.item_specific_complements
                             if temp_index < len(complements_list):
                                 complement = complements_list[temp_index]
-                                complement['mandatory'] = checkbox.isChecked()
+                                # Verifica se o ID temporário está nos obrigatórios
+                                complement['mandatory'] = comp_id in mandatory_complement_ids
 
             # Converte para o formato esperado pela função do banco
             additions_data = []

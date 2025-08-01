@@ -154,29 +154,74 @@ class MenuEditWindow(QDialog):
             self.additions_btn_layout.addLayout(h)
 
     def edit_item(self, row):
-        logger.info(f'Editando item na linha: {row}')
+        logger.info(f'🔧 MENU_EDIT: Editando item na linha: {row}')
         item = self.menu_items[row]
         item_id = item[0]
+
+        # Log estado ANTES de abrir o diálogo
+        from database.db import (
+            get_all_additions_for_item_with_mandatory_info, get_category_id)
+        # categoria é o 4º campo (índice 3)
+        category_id = get_category_id(item[3])
+        before_edit = get_all_additions_for_item_with_mandatory_info(
+            item_id, category_id)
+        mandatory_before_edit = [aid for aid, name, price,
+                                 is_mandatory, source in before_edit if is_mandatory]
+        logger.info(
+            f'🔧 MENU_EDIT: ANTES de abrir diálogo - Item {item_id} tem {len(mandatory_before_edit)} obrigatórios: {mandatory_before_edit}')
+
         dialog = MenuEditDialogItem(
             item[1:], self.categories, self.additions, None, item_id)
         dialog.setWindowFlags(Qt.Window)
+
         if dialog.exec():
+            logger.info(
+                f'🔧 MENU_EDIT: Usuário clicou OK no diálogo principal de edição')
+
+            # Log estado DEPOIS do diálogo mas ANTES da atualização básica
+            after_dialog = get_all_additions_for_item_with_mandatory_info(
+                item_id, category_id)
+            mandatory_after_dialog = [
+                aid for aid, name, price, is_mandatory, source in after_dialog if is_mandatory]
+            logger.info(
+                f'🔧 MENU_EDIT: DEPOIS do diálogo - Item {item_id} tem {len(mandatory_after_dialog)} obrigatórios: {mandatory_after_dialog}')
+
             updated_item = dialog.get_item()
-            from database.db import update_menu_item
+            from database.db import update_menu_item_basic
             category_id = get_category_id(updated_item[2])
             if category_id is None:
                 logger.error(f"Categoria não encontrada: {updated_item[2]}")
                 return
-            addition_ids = [add[0] for add in updated_item[4]
-                            ] if isinstance(updated_item[4], list) else []
+
+            # Atualiza apenas os campos básicos, preservando todos os vínculos
             try:
-                update_menu_item(item_id, updated_item[0], updated_item[1], category_id,
-                                 updated_item[3], addition_ids)
+                logger.info(
+                    f"🔧 MENU_EDIT: Atualizando apenas campos básicos do item {item_id}")
+                logger.info(
+                    f"🔧 MENU_EDIT: Novos valores - Nome: {updated_item[0]}, Preço: {updated_item[1]}, Categoria: {updated_item[2]}, Descrição: {updated_item[3]}")
+
+                update_menu_item_basic(item_id, updated_item[0], updated_item[1],
+                                       category_id, updated_item[3])
+
+                # Log estado FINAL depois da atualização básica
+                final_state = get_all_additions_for_item_with_mandatory_info(
+                    item_id, category_id)
+                mandatory_final = [
+                    aid for aid, name, price, is_mandatory, source in final_state if is_mandatory]
+                logger.info(
+                    f'🔧 MENU_EDIT: ESTADO FINAL - Item {item_id} tem {len(mandatory_final)} obrigatórios: {mandatory_final}')
+
+                logger.info(
+                    "🔧 MENU_EDIT: Campos básicos atualizados com sucesso - vínculos preservados")
             except ValueError as e:
                 QMessageBox.warning(self, "Erro ao editar item", str(e))
                 return
-            self.menu_items = get_menu_items()
-            self.refresh_table()
+        else:
+            logger.info(
+                f'🔧 MENU_EDIT: Usuário cancelou o diálogo principal de edição')
+
+        self.menu_items = get_menu_items()
+        self.refresh_table()
 
     def delete_item(self, row):
         logger.info(f'Excluindo item na linha: {row}')

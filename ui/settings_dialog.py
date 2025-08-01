@@ -150,6 +150,11 @@ class SettingsDialog(QDialog):
         self.print_header_checkbox.setChecked(True)
         print_settings_layout.addWidget(self.print_header_checkbox)
 
+        # Girar nota
+        self.rotate_receipt_checkbox = QCheckBox("Girar nota")
+        self.rotate_receipt_checkbox.setChecked(True)
+        print_settings_layout.addWidget(self.rotate_receipt_checkbox)
+
         layout.addWidget(print_settings_group)
         layout.addStretch()
 
@@ -365,15 +370,12 @@ class SettingsDialog(QDialog):
             self.company_phone_edit.setText(
                 get_system_setting('company_phone', ''))
 
-            # Configurações de impressão
-            margin = int(get_system_setting('print_margin', '5'))
-            self.margin_spinbox.setValue(margin)
-
             print_header = get_system_setting('print_header', 'true') == 'true'
             self.print_header_checkbox.setChecked(print_header)
 
-            print_bold = get_system_setting('print_bold', 'false') == 'true'
-            self.bold_checkbox.setChecked(print_bold)
+            rotate_receipt = get_system_setting(
+                'rotate_receipt', 'true') == 'true'
+            self.rotate_receipt_checkbox.setChecked(rotate_receipt)
 
             # Configurações do sistema
             confirm_delete = get_system_setting(
@@ -442,18 +444,16 @@ class SettingsDialog(QDialog):
                 set_system_setting('default_printer',
                                    self.printer_combo.currentText())
 
-            set_system_setting('print_margin',
-                               str(self.margin_spinbox.value()))
-
             print_header_value = ('true'
                                   if self.print_header_checkbox.isChecked()
                                   else 'false')
+
             set_system_setting('print_header', print_header_value)
 
-            # Configuração de negrito
-            print_bold_value = (
-                'true' if self.bold_checkbox.isChecked() else 'false')
-            set_system_setting('print_bold', print_bold_value)
+            # Salva configuração de girar nota
+            print('salvando')
+            rotate_receipt_value = 'true' if self.rotate_receipt_checkbox.isChecked() else 'false'
+            set_system_setting('rotate_receipt', rotate_receipt_value)
 
             # Configurações do sistema
             confirm_delete_value = ('true'
@@ -475,11 +475,6 @@ class SettingsDialog(QDialog):
                                self.backup_combo.currentText())
             set_system_setting('history_months',
                                str(self.history_spinbox.value()))
-
-            # Tamanho de impressão
-            set_system_setting(
-                'print_size', self.print_size_combo.currentText()
-            )
 
             QMessageBox.information(
                 self, "Sucesso", "Configurações salvas com sucesso!")

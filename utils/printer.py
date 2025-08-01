@@ -31,8 +31,14 @@ class Printer:
             pdf_path (str): Caminho onde salvar o PDF
             linhas (list): Linhas de texto para o recibo
         """
+        # import getpass
+        # import shutil
+
         from reportlab.lib.units import mm
         from reportlab.pdfgen import canvas
+
+        # Lê configuração de girar nota
+        rotate_receipt = get_system_setting('rotate_receipt', 'true') == 'true'
         largura = 80 * mm  # 80mm de largura (bobina padrão)
         altura_linha = 6 * mm
         margem_topo = 10 * mm
@@ -40,14 +46,26 @@ class Printer:
         # Altura ajustada dinamicamente conforme quantidade de linhas
         altura = margem_topo + margem_base + len(linhas) * altura_linha
         c = canvas.Canvas(pdf_path, pagesize=(largura, altura))
-        c.translate(largura, altura)
-        c.rotate(180)
+        if rotate_receipt:
+            c.translate(largura, altura)
+            c.rotate(180)
         c.setFont("Helvetica-Bold", 12)
         y = altura - margem_topo
         for linha in linhas:
             c.drawString(5 * mm, y, linha)
             y -= altura_linha
         c.save()
+
+        # Salva uma cópia do PDF na área de trabalho do usuário para análise
+        # try:
+        #     user = getpass.getuser()
+        #     desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        #     dest_path = os.path.join(desktop, "recibo_ultimo.pdf")
+        #     shutil.copy2(pdf_path, dest_path)
+        #     LOGGER.info(f"Cópia do PDF salva em: {dest_path}")
+        # except Exception as e:
+        #     LOGGER.warning(
+        #         f"Não foi possível salvar cópia do PDF na área de trabalho: {e}")
 
     def print_pdf(self, pdf_path, printer_name=None):
         """
@@ -57,11 +75,25 @@ class Printer:
             printer_name (str): Nome da impressora (opcional, usa self.name)
         """
         import subprocess
+        import sys
         from pathlib import Path
-        sumatra_path = Path(__file__).parent / "SumatraPDF.exe"
-        if not sumatra_path.exists():
+
+        sumatra_path = None
+        # 1. Se rodando empacotado pelo PyInstaller, buscar em _internal
+        if hasattr(sys, '_MEIPASS'):
+            internal_path = Path(sys._MEIPASS) / '_internal' / 'SumatraPDF.exe'
+            if internal_path.exists():
+                sumatra_path = internal_path
+        # 2. Fallback: buscar em utils/ (desenvolvimento)
+        if sumatra_path is None:
+            dev_path = Path(__file__).parent / "SumatraPDF.exe"
+            if dev_path.exists():
+                sumatra_path = dev_path
+
+        if not sumatra_path or not sumatra_path.exists():
             raise FileNotFoundError(
-                "SumatraPDF.exe não encontrado no caminho especificado.")
+                "SumatraPDF.exe não encontrado em _internal ou utils/. Certifique-se que está empacotado corretamente.")
+
         if not printer_name:
             printer_name = self.name
         args = [str(sumatra_path), "-print-to", printer_name, str(pdf_path)]

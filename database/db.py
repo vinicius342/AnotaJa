@@ -1,4 +1,6 @@
+
 import sqlite3
+import sys
 from pathlib import Path
 
 # Importa apenas quando necessário para evitar dependência circular
@@ -11,7 +13,15 @@ except ImportError:
         def error(self, msg): print(f"ERROR: {msg}")
     LOGGER = DummyLogger()
 
-DB_PATH = Path(__file__).parent.parent / 'data' / 'database.db'
+# Corrige o caminho do banco para ser sempre ao lado do executável, mesmo empacotado
+if hasattr(sys, '_MEIPASS'):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent.parent
+DB_PATH = BASE_DIR / 'data' / 'database.db'
+# Garante que a pasta data/ exista antes de criar o banco
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+print(f"Caminho do banco: {DB_PATH}")
 
 
 def get_connection():
@@ -289,6 +299,12 @@ def update_addition(addition_id, name, price):
 
 
 def add_menu_item(name, price, category_id, description='', addition_ids=None, mandatory_ids=None):
+    """
+    Adiciona um item ao menu com complementos obrigatórios
+
+    Args:
+        mandatory_ids: Lista de IDs únicos (int para categoria, "specific_N" para específicos)
+    """
     with get_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -299,12 +315,21 @@ def add_menu_item(name, price, category_id, description='', addition_ids=None, m
         except sqlite3.IntegrityError as e:
             raise ValueError('Já existe um item com esse nome.') from e
         item_id = cursor.lastrowid
+
         if addition_ids:
+            # Processa complementos de categoria
             for add_id in addition_ids:
-                is_mandatory = 1 if mandatory_ids and add_id in mandatory_ids else 0
+                # Determina se é obrigatório baseado nos IDs únicos
+                is_mandatory = 0
+                if mandatory_ids:
+                    # Verifica se o ID da categoria está nos obrigatórios
+                    if add_id in mandatory_ids:
+                        is_mandatory = 1
+
                 cursor.execute(
                     'INSERT INTO item_addition_link (item_id, addition_id, is_mandatory) VALUES (?, ?, ?)',
                     (item_id, add_id, is_mandatory))
+
         conn.commit()
         return item_id
 
@@ -340,6 +365,38 @@ def delete_menu_item(item_id):
             'DELETE FROM item_addition_link WHERE item_id = ?', (item_id,))
         cursor.execute('DELETE FROM menu_items WHERE id = ?', (item_id,))
         conn.commit()
+
+
+def update_menu_item_basic(item_id, name, price, category_id, description):
+    """Atualiza apenas os campos básicos do item sem mexer nos vínculos"""
+    import sqlite3
+
+    from utils.log_utils import get_logger
+    logger = get_logger(__name__)
+
+    logger.info(
+        f"🔧 DB_UPDATE_BASIC: Iniciando atualização básica para item {item_id}")
+    logger.info(
+        f"🔧 DB_UPDATE_BASIC: Valores - Nome: {name}, Preço: {price}, Categoria ID: {category_id}, Descrição: {description}")
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                'UPDATE menu_items SET name=?, price=?, category_id=?, description=? WHERE id=?',
+                (name, price, category_id, description, item_id)
+            )
+            affected_rows = cursor.rowcount
+            logger.info(
+                f"🔧 DB_UPDATE_BASIC: {affected_rows} linhas afetadas na tabela menu_items")
+        except sqlite3.IntegrityError as e:
+            logger.error(f"🔧 DB_UPDATE_BASIC: Erro de integridade: {e}")
+            raise ValueError('Já existe um item com esse nome.') from e
+        conn.commit()
+        logger.info(
+            f"🔧 DB_UPDATE_BASIC: Commit executado com sucesso para item {item_id}")
+        logger.info(
+            f"🔧 DB_UPDATE_BASIC: Atualização básica concluída - NENHUM vínculo foi alterado")
 
 
 def update_menu_item(item_id, name, price, category_id, description, addition_ids=None, mandatory_ids=None):
@@ -624,8 +681,16 @@ def get_orders_today():
                              category_id, category_name, item_description]
                 # Lista de IDs dos obrigatórios selecionados (preferencialmente da coluna mandatory_selected)
                 if mandatory_selected_str:
-                    mandatory_selected = [
-                        int(mid) for mid in mandatory_selected_str.split(',') if mid.strip()]
+                    mandatory_selected = []
+                    for mid in mandatory_selected_str.split(','):
+                        mid = mid.strip()
+                        if mid:
+                            # Tenta converter para int se for numérico, senão mantém como string
+                            try:
+                                mandatory_selected.append(int(mid))
+                            except ValueError:
+                                # Para IDs com prefixo como "specific_23"
+                                mandatory_selected.append(mid)
                 else:
                     mandatory_selected = [m['id'] for m in mandatory_additions]
                 print(
@@ -879,10 +944,17 @@ def get_all_additions_for_item(item_id, category_id):
 
 
 def get_all_additions_for_item_with_mandatory_info(item_id, category_id):
-    """Retorna complementos com informação sobre obrigatoriedade"""
+    """Retorna complementos com informação sobre obrigatoriedade
+
+    Retorna tuplas no formato: (id_unico, name, price, is_mandatory, source_type)
+    - Para complementos de categoria: id_unico = id (int)
+    - Para complementos específicos: id_unico = f"specific_{id}"
+    """
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
+            result_additions = []
+
             # Complementos de categoria e vinculados ao item
             cursor.execute('''
                 SELECT DISTINCT a.id, a.name, a.price, 
@@ -895,6 +967,11 @@ def get_all_additions_for_item_with_mandatory_info(item_id, category_id):
             ''', (item_id, category_id, item_id))
             additions = cursor.fetchall()
 
+            # Adiciona complementos de categoria com ID original (int)
+            for add_id, name, price, is_mandatory in additions:
+                result_additions.append(
+                    (add_id, name, price, is_mandatory, 'category'))
+
             # Complementos específicos do item
             cursor.execute('''
                 SELECT id, name, price, is_mandatory
@@ -904,12 +981,57 @@ def get_all_additions_for_item_with_mandatory_info(item_id, category_id):
             ''', (item_id,))
             specific_additions = cursor.fetchall()
 
-            # Junta tudo em uma lista só
-            all_additions = list(additions) + list(specific_additions)
-            return all_additions
+            # Adiciona complementos específicos com ID prefixado
+            for spec_id, name, price, is_mandatory in specific_additions:
+                unique_id = f"specific_{spec_id}"
+                result_additions.append(
+                    (unique_id, name, price, is_mandatory, 'specific'))
+
+        return result_additions
     except Exception as e:
         LOGGER.error(f"Erro na consulta de complementos: {e}")
         return []  # Retorna lista vazia em caso de erro
+
+
+def parse_addition_id(unique_id):
+    """
+    Converte ID único para (real_id, source_type)
+
+    Args:
+        unique_id: int para categoria, "specific_N" para específicos
+
+    Returns:
+        tuple: (real_id, source_type) onde source_type é 'category' ou 'specific'
+    """
+    if isinstance(unique_id, str) and unique_id.startswith('specific_'):
+        try:
+            real_id = int(unique_id.split('_')[1])
+            return real_id, 'specific'
+        except (ValueError, IndexError):
+            raise ValueError(f"ID específico inválido: {unique_id}")
+    elif isinstance(unique_id, int):
+        return unique_id, 'category'
+    else:
+        raise ValueError(f"Formato de ID inválido: {unique_id}")
+
+
+def format_addition_id(real_id, source_type):
+    """
+    Converte (real_id, source_type) para ID único
+
+    Args:
+        real_id: ID real na tabela
+        source_type: 'category' ou 'specific'
+
+    Returns:
+        ID único (int para categoria, "specific_N" para específicos)
+    """
+    if source_type == 'specific':
+        return f"specific_{real_id}"
+    elif source_type == 'category':
+        return real_id
+    else:
+        raise ValueError(f"Tipo de fonte inválido: {source_type}")
 
 
 def get_item_specific_additions(item_id):
@@ -1056,34 +1178,125 @@ def save_order(customer_id, items_data, total_amount, notes=""):
 
 def set_item_mandatory_additions(item_id, addition_ids):
     """Define quais complementos são obrigatórios para um item específico"""
+    from utils.log_utils import get_logger
+    logger = get_logger(__name__)
+
+    logger.info(
+        f"🔧 DB_SET_MANDATORY: Iniciando para item {item_id}, IDs: {addition_ids}")
+
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Log estado ANTES das alterações
+        cursor.execute(
+            'SELECT addition_id, is_mandatory FROM item_addition_link WHERE item_id = ?', (item_id,))
+        before_links = cursor.fetchall()
+        logger.info(f"🔧 DB_SET_MANDATORY: Links ANTES: {before_links}")
+
+        # PRIMEIRO: Garante que todos os addition_ids tenham vínculos criados
+        if addition_ids:
+            for add_id in addition_ids:
+                cursor.execute(
+                    'INSERT OR IGNORE INTO item_addition_link (item_id, addition_id, is_mandatory) VALUES (?, ?, ?)',
+                    (item_id, add_id, 0))
+            logger.info(
+                f"🔧 DB_SET_MANDATORY: Vínculos garantidos para IDs: {addition_ids}")
+
         # Atualiza o campo is_mandatory para todos os complementos do item
+        logger.info(
+            f"🔧 DB_SET_MANDATORY: Zerando is_mandatory para todos os links do item {item_id}")
         cursor.execute(
             'UPDATE item_addition_link SET is_mandatory = 0 WHERE item_id = ?', (item_id,))
+        affected_rows = cursor.rowcount
+        logger.info(
+            f"🔧 DB_SET_MANDATORY: {affected_rows} linhas afetadas pelo zerando")
+
         # Marca os complementos selecionados como obrigatórios
         if addition_ids:
+            logger.info(
+                f"🔧 DB_SET_MANDATORY: Marcando {len(addition_ids)} complementos como obrigatórios")
             placeholders = ','.join(['?' for _ in addition_ids])
-            cursor.execute(
-                f'UPDATE item_addition_link SET is_mandatory = 1 WHERE item_id = ? AND addition_id IN ({placeholders})',
-                [item_id] + addition_ids)
+            query = f'UPDATE item_addition_link SET is_mandatory = 1 WHERE item_id = ? AND addition_id IN ({placeholders})'
+            params = [item_id] + addition_ids
+            logger.info(f"🔧 DB_SET_MANDATORY: Query: {query}")
+            logger.info(f"🔧 DB_SET_MANDATORY: Params: {params}")
+            cursor.execute(query, params)
+            affected_rows = cursor.rowcount
+            logger.info(
+                f"🔧 DB_SET_MANDATORY: {affected_rows} linhas marcadas como obrigatórias")
+
+            # Verifica se todas foram marcadas corretamente
+            if affected_rows != len(addition_ids):
+                logger.warning(
+                    f"🔧 DB_SET_MANDATORY: AVISO - Esperado {len(addition_ids)} linhas, mas {affected_rows} foram afetadas")
+        else:
+            logger.info(
+                f"🔧 DB_SET_MANDATORY: Nenhum complemento para marcar como obrigatório")
+
+        # Log estado DEPOIS das alterações
+        cursor.execute(
+            'SELECT addition_id, is_mandatory FROM item_addition_link WHERE item_id = ?', (item_id,))
+        after_links = cursor.fetchall()
+        logger.info(f"🔧 DB_SET_MANDATORY: Links DEPOIS: {after_links}")
+
         conn.commit()
+        logger.info(
+            f"🔧 DB_SET_MANDATORY: Commit executado para item {item_id}")
 
 
 def set_item_specific_mandatory_additions(item_id, specific_addition_ids):
     """Define quais complementos específicos são obrigatórios para um item"""
+    from utils.log_utils import get_logger
+    logger = get_logger(__name__)
+
+    logger.info(
+        f"🔧 DB_SET_SPECIFIC: Iniciando para item {item_id}, IDs: {specific_addition_ids}")
+
     with get_connection() as conn:
         cursor = conn.cursor()
+
+        # Log estado ANTES das alterações
+        cursor.execute(
+            'SELECT id, name, is_mandatory FROM item_specific_additions WHERE item_id = ?', (item_id,))
+        before_specifics = cursor.fetchall()
+        logger.info(
+            f"🔧 DB_SET_SPECIFIC: Específicos ANTES: {before_specifics}")
+
         # Atualiza o campo is_mandatory para todos os complementos específicos do item
+        logger.info(
+            f"🔧 DB_SET_SPECIFIC: Zerando is_mandatory para todos os específicos do item {item_id}")
         cursor.execute(
             'UPDATE item_specific_additions SET is_mandatory = 0 WHERE item_id = ?', (item_id,))
+        affected_rows = cursor.rowcount
+        logger.info(
+            f"🔧 DB_SET_SPECIFIC: {affected_rows} linhas afetadas pelo zerando")
+
         # Marca os complementos específicos selecionados como obrigatórios
         if specific_addition_ids:
+            logger.info(
+                f"🔧 DB_SET_SPECIFIC: Marcando {len(specific_addition_ids)} específicos como obrigatórios")
             placeholders = ','.join(['?' for _ in specific_addition_ids])
-            cursor.execute(
-                f'UPDATE item_specific_additions SET is_mandatory = 1 WHERE item_id = ? AND id IN ({placeholders})',
-                [item_id] + specific_addition_ids)
+            query = f'UPDATE item_specific_additions SET is_mandatory = 1 WHERE item_id = ? AND id IN ({placeholders})'
+            params = [item_id] + specific_addition_ids
+            logger.info(f"🔧 DB_SET_SPECIFIC: Query: {query}")
+            logger.info(f"🔧 DB_SET_SPECIFIC: Params: {params}")
+            cursor.execute(query, params)
+            affected_rows = cursor.rowcount
+            logger.info(
+                f"🔧 DB_SET_SPECIFIC: {affected_rows} linhas marcadas como obrigatórias")
+        else:
+            logger.info(
+                f"🔧 DB_SET_SPECIFIC: Nenhum específico para marcar como obrigatório")
+
+        # Log estado DEPOIS das alterações
+        cursor.execute(
+            'SELECT id, name, is_mandatory FROM item_specific_additions WHERE item_id = ?', (item_id,))
+        after_specifics = cursor.fetchall()
+        logger.info(
+            f"🔧 DB_SET_SPECIFIC: Específicos DEPOIS: {after_specifics}")
+
         conn.commit()
+        logger.info(f"🔧 DB_SET_SPECIFIC: Commit executado para item {item_id}")
 
 
 def get_item_mandatory_additions(item_id):

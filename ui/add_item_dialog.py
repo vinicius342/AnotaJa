@@ -342,19 +342,16 @@ class AddItemDialog(QDialog):
                 if child.widget():
                     child.widget().deleteLater()
 
-            for add_id, name, price, is_mandatory in all_additions_info:
+            for add_id, name, price, is_mandatory, source_type in all_additions_info:
                 LOGGER.debug(
                     f"Complemento: id={add_id}, nome={name}, preco={price}, "
-                    f"obrigatorio={is_mandatory}")
-
-                # Determina se é específico ou da categoria
-                source = "specific" if is_mandatory else "category"
+                    f"obrigatorio={is_mandatory}, tipo={source_type}")
 
                 comp = {
                     'id': add_id,
                     'name': name,
                     'price': price,
-                    'source': source,
+                    'source': source_type,
                     'is_mandatory': is_mandatory
                 }
 
@@ -477,7 +474,7 @@ class AddItemDialog(QDialog):
             QCheckBox.keyPressEvent(checkbox, event)
 
     def focus_next_checkbox(self, current_checkbox):
-        """Foca no próximo checkbox da lista."""
+        """Foca no próximo checkbox da lista e faz scroll para ele."""
         checkboxes = self.get_all_checkboxes()
         if not checkboxes:
             return
@@ -485,14 +482,17 @@ class AddItemDialog(QDialog):
         try:
             current_index = checkboxes.index(current_checkbox)
             next_index = (current_index + 1) % len(checkboxes)
-            checkboxes[next_index].setFocus()
+            next_checkbox = checkboxes[next_index]
+            next_checkbox.setFocus()
+            self.ensure_checkbox_visible(next_checkbox)
         except ValueError:
             # Se não encontrar o checkbox atual, foca no primeiro
             if checkboxes:
                 checkboxes[0].setFocus()
+                self.ensure_checkbox_visible(checkboxes[0])
 
     def focus_previous_checkbox(self, current_checkbox):
-        """Foca no checkbox anterior da lista."""
+        """Foca no checkbox anterior da lista e faz scroll para ele."""
         checkboxes = self.get_all_checkboxes()
         if not checkboxes:
             return
@@ -500,11 +500,66 @@ class AddItemDialog(QDialog):
         try:
             current_index = checkboxes.index(current_checkbox)
             previous_index = (current_index - 1) % len(checkboxes)
-            checkboxes[previous_index].setFocus()
+            prev_checkbox = checkboxes[previous_index]
+            prev_checkbox.setFocus()
+            self.ensure_checkbox_visible(prev_checkbox)
         except ValueError:
             # Se não encontrar o checkbox atual, foca no último
             if checkboxes:
                 checkboxes[-1].setFocus()
+                self.ensure_checkbox_visible(checkboxes[-1])
+
+    def ensure_checkbox_visible(self, checkbox):
+        """Garante que o checkbox focado esteja visível no scroll dos obrigatórios."""
+        # Procura o QScrollArea dos obrigatórios
+        parent = checkbox.parent()
+        while parent is not None:
+            if isinstance(parent, QScrollArea):
+                scroll_area = parent
+                break
+            parent = parent.parent()
+        else:
+            # Busca pelo scroll_area explicitamente se não achou
+            scroll_area = None
+            for i in range(self.mandatory_additions_layout.count()):
+                item = self.mandatory_additions_layout.itemAt(i)
+                if item and item.widget():
+                    w = item.widget()
+                    sa = w.parent()
+                    while sa is not None:
+                        if isinstance(sa, QScrollArea):
+                            scroll_area = sa
+                            break
+                        sa = sa.parent()
+                    if scroll_area:
+                        break
+        # Se não achou, tenta pelo atributo
+        if not hasattr(self, 'mandatory_additions_layout'):
+            return
+        # Busca o scroll_area pelo layout do grupo
+        if not scroll_area:
+            # Procura pelo QGroupBox e QScrollArea
+            for i in range(self.layout().count()):
+                item = self.layout().itemAt(i)
+                widget = item.widget() if item else None
+                if widget and isinstance(widget, QGroupBox):
+                    group_layout = widget.layout()
+                    if group_layout:
+                        for j in range(group_layout.count()):
+                            subitem = group_layout.itemAt(j)
+                            subwidget = subitem.widget() if subitem else None
+                            if isinstance(subwidget, QScrollArea):
+                                scroll_area = subwidget
+                                break
+                    if scroll_area:
+                        break
+        if not scroll_area:
+            return
+        # Faz o scroll para o checkbox
+        rect = checkbox.geometry()
+        pos = checkbox.mapTo(scroll_area.widget(), rect.topLeft())
+        scroll_area.ensureVisible(
+            pos.x(), pos.y(), rect.width(), rect.height())
 
     def get_all_checkboxes(self):
         """Retorna lista de todos os checkboxes obrigatórios."""
