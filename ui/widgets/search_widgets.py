@@ -23,6 +23,13 @@ class CustomerSearchWidget(QWidget):
         """Carrega a lista de clientes do banco e atualiza o widget."""
         from database.db import get_customers
         customers = get_customers()
+        LOGGER.info(
+            f"[LOAD_CUSTOMERS] Carregando {len(customers)} clientes do banco")
+
+        # Mostra alguns clientes para debug
+        for i, customer in enumerate(customers[-3:]):
+            LOGGER.info(f"[LOAD_CUSTOMERS] Cliente {i}: {customer}")
+
         self.set_customers(customers)
     """Widget de busca integrado com QLineEdit no topo e QListWidget abaixo."""
     customer_selected = Signal(dict)
@@ -253,8 +260,27 @@ class CustomerSearchWidget(QWidget):
 
     def set_customers(self, customers):
         """Atualiza a lista de clientes, inclusive no worker da thread."""
-        self.customers = customers
-        self.worker.set_customers(customers)
+        LOGGER.info(f"[SET_CUSTOMERS] Recebendo {len(customers)} clientes")
+
+        # Converte para o formato esperado (nome, telefone)
+        formatted_customers = []
+        for c in customers:
+            if len(c) >= 3:  # Formato completo do banco (id, name, phone, ...)
+                name = c[1] if c[1] is not None else ""
+                phone = c[2] if c[2] is not None else ""
+                formatted_customers.append((name, phone))
+            elif len(c) == 2:  # Já no formato (name, phone)
+                formatted_customers.append(c)
+
+        LOGGER.info(
+            f"[SET_CUSTOMERS] Formatados {len(formatted_customers)} clientes")
+
+        # Mostra alguns clientes para debug
+        for i, customer in enumerate(formatted_customers[-3:]):
+            LOGGER.info(f"[SET_CUSTOMERS] Cliente formatado {i}: {customer}")
+
+        self.customers = formatted_customers
+        self.worker.set_customers(formatted_customers)
         self.clear_selection()
 
     def clear_selection(self):

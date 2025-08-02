@@ -54,8 +54,22 @@ class PrintThread(QThread):
 class MainWindow(QMainWindow):
     def update_all_customer_suggestions(self):
         """Atualiza sugestões de clientes em todas as telas OrderScreen."""
+        # Primeiro atualiza a lista global
+        global ALL_CUSTOMERS
+        old_count = len(ALL_CUSTOMERS)
+        ALL_CUSTOMERS = [(c[1], c[2]) for c in get_customers()]
+        new_count = len(ALL_CUSTOMERS)
+        LOGGER.info(
+            f'Lista global atualizada: {old_count} -> {new_count} clientes')
+
+        # Mostra alguns clientes para debug
+        for i, customer in enumerate(ALL_CUSTOMERS[-3:]):
+            LOGGER.info(f'Cliente {i}: {customer}')
+
+        # Depois atualiza todas as telas
         for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
             if hasattr(screen, 'customer_search') and hasattr(screen.customer_search, 'load_customers'):
+                LOGGER.info(f'Atualizando {screen.screen_title}')
                 screen.customer_search.load_customers()
 
     def __init__(self):
@@ -108,6 +122,11 @@ class MainWindow(QMainWindow):
 
         # Conecta o sinal de atualização de sugestões de clientes de cada tela para atualizar todas
         for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+            # Conecta o sinal de cliente registrado diretamente do OrderScreen
+            if hasattr(screen, 'customer_registered'):
+                screen.customer_registered.connect(
+                    self.update_all_customer_suggestions)
+
             if hasattr(screen, 'customer_search') and hasattr(screen.customer_search, 'load_customers'):
                 # Garante que o dialog de finalização de pedido, ao registrar cliente, chame update_all_customer_suggestions
                 def make_connect(s=screen):

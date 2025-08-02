@@ -462,14 +462,19 @@ class MenuRegistrationWindow(QDialog):
             self.mandatory_complements_layout.addWidget(label)
 
     def get_selected_mandatory_complements(self):
-        """Retorna os IDs dos complementos marcados como obrigatórios (checkboxes)"""
+        """Retorna os IDs dos complementos marcados como obrigatórios (checkboxes), ignorando objetos deletados."""
         selected_ids = []
         if hasattr(self, 'mandatory_complements_checkboxes'):
             for checkbox in self.mandatory_complements_checkboxes:
-                if checkbox.isChecked():
-                    comp_data = getattr(checkbox, 'comp_data', None)
-                    if comp_data and 'id' in comp_data:
-                        selected_ids.append(comp_data['id'])
+                # Verifica se o checkbox ainda existe
+                try:
+                    if checkbox is not None and hasattr(checkbox, 'isChecked') and checkbox.isChecked():
+                        comp_data = getattr(checkbox, 'comp_data', None)
+                        if comp_data and 'id' in comp_data:
+                            selected_ids.append(comp_data['id'])
+                except RuntimeError:
+                    # Ignora checkbox deletado
+                    continue
         return selected_ids
 
     def add_menu_item(self):

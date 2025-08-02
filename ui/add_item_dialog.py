@@ -193,7 +193,16 @@ class AddItemDialog(QDialog):
         additions_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(additions_label)
 
-        # NOVO: Seção de complementos obrigatórios com altura fixa e overscroll
+        # Campo de busca para complementos obrigatórios
+        from PySide6.QtWidgets import QLineEdit
+        self.mandatory_search_lineedit = QLineEdit()
+        self.mandatory_search_lineedit.setPlaceholderText(
+            "Buscar complemento obrigatório...")
+        self.mandatory_search_lineedit.textChanged.connect(
+            self.filter_mandatory_additions)
+        layout.addWidget(self.mandatory_search_lineedit)
+
+        # Seção de complementos obrigatórios com altura fixa e overscroll
         self.mandatory_additions_layout = QVBoxLayout()
         self.mandatory_additions_layout.setContentsMargins(5, 0, 5, 0)
         self.mandatory_additions_layout.setSpacing(2)
@@ -205,7 +214,6 @@ class AddItemDialog(QDialog):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(mandatory_widget)
-        # altura fixa, ajuste conforme necessário
         scroll_area.setFixedHeight(130)
         scroll_area.setStyleSheet(
             "QScrollArea {background: transparent; border: none;} "
@@ -222,7 +230,7 @@ class AddItemDialog(QDialog):
             "font-weight: bold; margin-top: 10px;")
         layout.addWidget(complementos_label)
 
-        # Layout para seleção de complementos
+        # Layout para seleção de complementos opcionais
         additions_layout = QHBoxLayout()
 
         # QPushButton + QMenu para selecionar complemento
@@ -269,6 +277,18 @@ class AddItemDialog(QDialog):
                 padding: 2px;
             }
         """)
+
+    def filter_mandatory_additions(self, text):
+        """Filtra os complementos obrigatórios pelo texto digitado."""
+        text = text.strip().lower()
+        for i in range(self.mandatory_additions_layout.count()):
+            item = self.mandatory_additions_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                label = widget.findChild(QLabel)
+                if label:
+                    label_text = label.text().lower()
+                    widget.setVisible(text in label_text)
 
     def setup_observations_section(self, layout):
         """Configura a seção de observações."""

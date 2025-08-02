@@ -2,7 +2,7 @@
 Tela de pedidos - versão refatorada e simplificada.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QHeaderView,
                                QLabel, QMenu, QMessageBox, QPushButton,
@@ -21,6 +21,9 @@ LOGGER = get_logger(__name__)
 
 
 class OrderScreen(QWidget):
+    # Sinal emitido quando um cliente é registrado
+    customer_registered = Signal(dict)
+
     def show_history_dialog(self):
         print("Exibindo histórico de pedidos do dia")
         from PySide6.QtWidgets import (QDialog, QHBoxLayout, QPushButton,
@@ -49,6 +52,7 @@ class OrderScreen(QWidget):
             table.setItem(idx, 1, QTableWidgetItem(phone))
             table.setItem(idx, 2, QTableWidgetItem(total))
             btn = QPushButton("Preencher")
+            btn.setStyleSheet("QPushButton { padding: 0px; }")
 
             def fill_order(o=order, c=customer):
                 # Busca registro completo do cliente em self.customers
@@ -683,6 +687,9 @@ class OrderScreen(QWidget):
                 self.selected_customer['reference'] = found[5]
                 # Remove o estado register para não tentar registrar de novo
                 self.selected_customer.pop('state', None)
+                # Emite sinal para notificar que cliente foi registrado
+                LOGGER.info("[FINALIZE] Cliente registrado, emitindo sinal")
+                self.customer_registered.emit(self.selected_customer)
                 # Atualiza a lista de sugestões do CustomerSearchWidget
                 if hasattr(self, 'customer_search') and hasattr(self.customer_search, 'load_customers'):
                     self.customer_search.load_customers()
