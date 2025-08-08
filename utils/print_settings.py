@@ -222,8 +222,7 @@ def format_order_for_print(customer_data, order_items, total_amount,
                 lines.append("      Detalhes:")
                 for mand in mandatory_additions:
                     mand_name = mand.get('name', 'Detalhe')
-                    mand_qty = mand.get('qty', 1)
-                    mand_line = f"      + {mand_qty}x | {mand_name}"
+                    mand_line = f"           {mand_name}"
                     for line in wrap_line(mand_line):
                         lines.append(line)
 
@@ -289,6 +288,11 @@ def format_order_for_print(customer_data, order_items, total_amount,
             if reference:
                 for line in wrap_line(f"Ref: {reference}"):
                     lines.append(line)
+
+        lines.extend(separator_)
+
+        lines.append("AnotaJa".center(55))
+
         lines.append("")
 
         return lines

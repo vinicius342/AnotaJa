@@ -94,7 +94,7 @@ class ItemAdditionsDialog(QDialog):
     def __init__(self, item_name, item_id, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.Window)
-        self.setModal(False)  # NÃO modal para permitir interação simultânea
+        self.setModal(True)  # Mudando para modal para melhor controle do Enter
         self.setWindowTitle(f"Complementos específicos para {item_name}")
         self.resize(500, 600)
         self.item_id = item_id
@@ -122,6 +122,10 @@ class ItemAdditionsDialog(QDialog):
         self.add_new_btn = QPushButton("Adicionar")
         self.add_new_btn.clicked.connect(self.add_new_addition)
         new_addition_layout.addWidget(self.add_new_btn)
+
+        # Conectar navegação por Enter
+        self.new_name_input.returnPressed.connect(self.focus_on_price)
+
         layout.addWidget(new_addition_frame)
 
         # Lista de complementos específicos do item (QListWidget)
@@ -169,6 +173,40 @@ class ItemAdditionsDialog(QDialog):
         # Carrega os complementos específicos e obrigatórios
         self.load_specific_complements()
         self.load_additions()
+
+    def keyPressEvent(self, event):
+        """Intercepta eventos de teclado antes que cheguem aos widgets"""
+        from PySide6.QtCore import Qt
+
+        # Se Enter foi pressionado e o foco está em um dos campos de entrada
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            focused_widget = self.focusWidget()
+
+            # Se o foco está no campo de nome, vai para o preço
+            if focused_widget == self.new_name_input:
+                event.accept()
+                self.focus_on_price()
+                return
+
+            # Se o foco está no campo de preço, adiciona o complemento
+            elif focused_widget == self.new_price_input:
+                event.accept()
+                self.trigger_add_new()
+                return
+
+        # Para outras teclas ou widgets, comportamento normal
+        super().keyPressEvent(event)
+
+    def focus_on_price(self):
+        """Foca no campo de preço e seleciona o valor atual"""
+        self.new_price_input.setFocus()
+        self.new_price_input.selectAll()
+
+    def trigger_add_new(self):
+        """Simula clique no botão adicionar e depois foca no nome"""
+        self.add_new_btn.click()
+        # Usa QTimer para aguardar o processamento e então focar
+        QTimer.singleShot(100, self.new_name_input.setFocus)
 
     def load_specific_complements(self):
         """Carrega e exibe complementos específicos do item no QListWidget"""

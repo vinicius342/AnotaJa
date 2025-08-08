@@ -1,6 +1,7 @@
 import os
 import sys
 
+from genericpath import exists
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QMainWindow,
@@ -76,6 +77,23 @@ class MainWindow(QMainWindow):
         super().__init__()
         LOGGER.info('MainWindow inicializada')
         self.setWindowTitle("AnotaJá")
+
+        # Define o ícone do app
+        import os
+        import sys
+
+        from PySide6.QtGui import QIcon
+
+        # Detecta se está rodando como executável PyInstaller
+        if getattr(sys, 'frozen', False):
+            # Executável PyInstaller
+            base_path = sys._MEIPASS
+        else:
+            # Desenvolvimento
+            base_path = os.path.dirname(__file__)
+
+        icon_path = os.path.join(base_path, "ui", "icons", "main_icon.ico")
+        self.setWindowIcon(QIcon(icon_path))
 
         # Menu bar com botão Ajustes
         menubar = QMenuBar(self)

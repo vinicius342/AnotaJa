@@ -494,9 +494,19 @@ class OrderScreen(QWidget):
         # Centraliza o diálogo na tela
         dialog.setWindowModality(Qt.ApplicationModal)
         dialog.show()
-        dialog.move(
-            dialog.screen().geometry().center() - dialog.rect().center()
-        )
+
+        # Tenta centralizar o dialog de forma segura
+        try:
+            screen = dialog.screen()
+            if screen:
+                dialog.move(
+                    screen.geometry().center() - dialog.rect().center()
+                )
+            else:
+                LOGGER.warning(
+                    "Nenhuma tela detectada para centralizar dialog")
+        except Exception as e:
+            LOGGER.warning(f"Erro ao centralizar dialog: {e}")
 
         dialog.exec()
 

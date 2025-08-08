@@ -200,6 +200,9 @@ class AddItemDialog(QDialog):
             "Buscar complemento obrigatório...")
         self.mandatory_search_lineedit.textChanged.connect(
             self.filter_mandatory_additions)
+        # Configura navegação por teclado no campo de busca
+        self.mandatory_search_lineedit.keyPressEvent = lambda event: \
+            self.search_key_handler(event)
         layout.addWidget(self.mandatory_search_lineedit)
 
         # Seção de complementos obrigatórios com altura fixa e overscroll
@@ -451,6 +454,21 @@ class AddItemDialog(QDialog):
         else:
             QSpinBox.keyPressEvent(self.addition_qty, event)
 
+    def search_key_handler(self, event):
+        """Manipula eventos de teclado no campo de busca de complementos obrigatórios."""
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            # Enter vai para o primeiro checkbox dos complementos obrigatórios
+            self.focus_first_checkbox()
+            event.accept()
+        elif event.key() == Qt.Key.Key_Down:
+            # Seta para baixo também vai para o primeiro checkbox
+            self.focus_first_checkbox()
+            event.accept()
+        else:
+            # Para outras teclas, usa o comportamento padrão
+            from PySide6.QtWidgets import QLineEdit
+            QLineEdit.keyPressEvent(self.mandatory_search_lineedit, event)
+
     def checkbox_key_handler(self, event, checkbox):
         """Manipula eventos de teclado nos checkboxes."""
         if event.key() == Qt.Key.Key_Space:
@@ -483,9 +501,9 @@ class AddItemDialog(QDialog):
                 self.focus_next_checkbox(checkbox)
             event.accept()
         elif event.key() == Qt.Key.Key_Up:
-            # Seta para cima: checkbox anterior ou campo quantidade se primeiro
+            # Seta para cima: checkbox anterior ou campo de busca se primeiro
             if self.is_first_checkbox(checkbox):
-                self.item_qty.setFocus()
+                self.mandatory_search_lineedit.setFocus()
             else:
                 self.focus_previous_checkbox(checkbox)
             event.accept()
@@ -632,8 +650,11 @@ class AddItemDialog(QDialog):
         """Manipula a tecla Enter conforme o controle focado."""
         focused_widget = QApplication.focusWidget()
 
-        # Se o foco está no campo de quantidade do item, vai para os checkboxes
+        # Se o foco está no campo de quantidade do item, vai para o campo de busca
         if focused_widget == self.item_qty:
+            self.mandatory_search_lineedit.setFocus()
+        # Se o foco está no campo de busca, vai para os checkboxes
+        elif focused_widget == self.mandatory_search_lineedit:
             self.focus_first_checkbox()
         # Se o foco está em um checkbox, marca/desmarca ele
         elif focused_widget in self.get_all_checkboxes():
@@ -645,8 +666,8 @@ class AddItemDialog(QDialog):
     def qty_key_handler(self, event):
         """Manipula eventos de teclado no campo de quantidade do item."""
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
-            # Enter vai para os checkboxes obrigatórios
-            self.focus_first_checkbox()
+            # Enter vai para o campo de busca de complementos obrigatórios
+            self.mandatory_search_lineedit.setFocus()
             event.accept()
             return  # Retorna para evitar processamento adicional
         else:
@@ -660,6 +681,10 @@ class AddItemDialog(QDialog):
 
         # Verifica se é o campo de quantidade do item
         if widget == self.item_qty:
+            return True
+
+        # Verifica se é o campo de busca de complementos obrigatórios
+        if widget == self.mandatory_search_lineedit:
             return True
 
         # Verifica se é um checkbox obrigatório
