@@ -7,7 +7,8 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QMainWindow,
                                QMenu, QMenuBar, QPushButton, QWidget)
 
-from database.db import get_customers, get_system_setting, init_db
+from database.db import (get_customers, get_system_setting, init_db,
+                         set_system_setting)
 from ui.customer_management import CustomerManagementWindow
 from ui.menu_edit import MenuEditWindow
 from ui.menu_registration import MenuRegistrationWindow
@@ -68,8 +69,9 @@ class MainWindow(QMainWindow):
             LOGGER.info(f'Cliente {i}: {customer}')
 
         # Depois atualiza todas as telas
-        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
-            if hasattr(screen, 'customer_search') and hasattr(screen.customer_search, 'load_customers'):
+        for screen in self.screens:
+            if hasattr(screen, 'customer_search') and \
+               hasattr(screen.customer_search, 'load_customers'):
                 LOGGER.info(f'Atualizando {screen.screen_title}')
                 screen.customer_search.load_customers()
 
@@ -94,6 +96,10 @@ class MainWindow(QMainWindow):
 
         icon_path = os.path.join(base_path, "ui", "icons", "main_icon.ico")
         self.setWindowIcon(QIcon(icon_path))
+
+        # Lê o número de telas configurado (padrão 4)
+        self.num_screens = int(get_system_setting('num_order_screens', '4'))
+        LOGGER.info(f'Configurado para {self.num_screens} telas de pedido')
 
         # Menu bar com botão Ajustes
         menubar = QMenuBar(self)
@@ -124,6 +130,10 @@ class MainWindow(QMainWindow):
         ajustes_action.triggered.connect(self.open_settings)
         menubar.addAction(ajustes_action)
 
+        self.setup_ui()
+
+    def setup_ui(self):
+        """Configura a interface baseada no número de telas"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -132,21 +142,82 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         central_widget.setLayout(layout)
 
-        # Criar 4 telas de pedido independentes
-        self.screen1 = OrderScreen("Pedido 1", customers=ALL_CUSTOMERS)
-        self.screen2 = OrderScreen("Pedido 2", customers=ALL_CUSTOMERS)
-        self.screen3 = OrderScreen("Pedido 3", customers=ALL_CUSTOMERS)
-        self.screen4 = OrderScreen("Pedido 4", customers=ALL_CUSTOMERS)
+        # Cria as telas de pedido baseado na configuração
+        self.screens = []
+        for i in range(self.num_screens):
+            # Se são 3 telas, usar layout de uma coluna para OrderScreen
+            use_single_column = (self.num_screens == 3)
+            screen = OrderScreen(f"Pedido {i+1}", customers=ALL_CUSTOMERS,
+                                 single_column_layout=use_single_column)
+            self.screens.append(screen)
 
-        # Conecta o sinal de atualização de sugestões de clientes de cada tela para atualizar todas
-        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
-            # Conecta o sinal de cliente registrado diretamente do OrderScreen
+        # Configura o layout baseado no número de telas
+        if self.num_screens == 1:
+            layout.addWidget(self.screens[0], 0, 0)
+        elif self.num_screens == 2:
+            layout.addWidget(self.screens[0], 0, 0)
+            layout.addWidget(self.screens[1], 0, 1)
+            # Linha vertical entre as telas
+            vline = QFrame()
+            vline.setFrameShape(QFrame.VLine)
+            vline.setFrameShadow(QFrame.Sunken)
+            vline.setLineWidth(2)
+            vline.setStyleSheet(
+                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+            layout.addWidget(vline, 0, 1)
+        elif self.num_screens == 3:
+            # Layout horizontal (uma linha com 3 colunas)
+            layout.addWidget(self.screens[0], 0, 0)
+            layout.addWidget(self.screens[1], 0, 2)
+            layout.addWidget(self.screens[2], 0, 4)
+            # Linhas verticais entre as telas
+            vline1 = QFrame()
+            vline1.setFrameShape(QFrame.VLine)
+            vline1.setFrameShadow(QFrame.Sunken)
+            vline1.setLineWidth(2)
+            vline1.setStyleSheet(
+                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+            layout.addWidget(vline1, 0, 1)
+
+            vline2 = QFrame()
+            vline2.setFrameShape(QFrame.VLine)
+            vline2.setFrameShadow(QFrame.Sunken)
+            vline2.setLineWidth(2)
+            vline2.setStyleSheet(
+                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+            layout.addWidget(vline2, 0, 3)
+        elif self.num_screens == 4:
+            # Layout em grade 2x2
+            layout.addWidget(self.screens[0], 0, 0)
+            layout.addWidget(self.screens[1], 0, 2)
+            layout.addWidget(self.screens[2], 2, 0)
+            layout.addWidget(self.screens[3], 2, 2)
+
+            # Linha vertical
+            vline = QFrame()
+            vline.setFrameShape(QFrame.VLine)
+            vline.setFrameShadow(QFrame.Sunken)
+            vline.setLineWidth(2)
+            vline.setStyleSheet(
+                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+            layout.addWidget(vline, 0, 1, 3, 1)
+
+            # Linha horizontal
+            hline = QFrame()
+            hline.setFrameShape(QFrame.HLine)
+            hline.setFrameShadow(QFrame.Sunken)
+            hline.setLineWidth(2)
+            hline.setStyleSheet(
+                "QFrame { border-top: 1px solid #bbb; margin: 0; }")
+            layout.addWidget(hline, 1, 0, 1, 3)
+
+        # Conecta sinais de todas as telas ativas
+        for screen in self.screens:
             if hasattr(screen, 'customer_registered'):
                 screen.customer_registered.connect(
                     self.update_all_customer_suggestions)
 
             if hasattr(screen, 'customer_search') and hasattr(screen.customer_search, 'load_customers'):
-                # Garante que o dialog de finalização de pedido, ao registrar cliente, chame update_all_customer_suggestions
                 def make_connect(s=screen):
                     if hasattr(s, 'finalize_order'):
                         orig_finalize = s.finalize_order
@@ -157,30 +228,6 @@ class MainWindow(QMainWindow):
                             return result
                         s.finalize_order = wrapped_finalize_order
                 make_connect(screen)
-
-        # Adiciona os frames dos pedidos
-        layout.addWidget(self.screen1, 0, 0)
-        layout.addWidget(self.screen2, 0, 2)
-        layout.addWidget(self.screen3, 2, 0)
-        layout.addWidget(self.screen4, 2, 2)
-
-        # Linha vertical
-        vline = QFrame()
-        vline.setFrameShape(QFrame.VLine)
-        vline.setFrameShadow(QFrame.Sunken)
-        vline.setLineWidth(2)
-        vline.setStyleSheet(
-            "QFrame { border-left: 1px solid #bbb; margin: 0; }")
-        layout.addWidget(vline, 0, 1, 3, 1)
-
-        # Linha horizontal
-        hline = QFrame()
-        hline.setFrameShape(QFrame.HLine)
-        hline.setFrameShadow(QFrame.Sunken)
-        hline.setLineWidth(2)
-        hline.setStyleSheet(
-            "QFrame { border-top: 1px solid #bbb; margin: 0; }")
-        layout.addWidget(hline, 1, 0, 1, 3)
 
     def open_settings(self):
         """Abre a janela de configurações do sistema."""
@@ -201,7 +248,7 @@ class MainWindow(QMainWindow):
         após cadastro."""
         LOGGER.info('Atualizando listas de itens após cadastro')
         # Atualiza todos os widgets de busca de itens
-        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+        for screen in self.screens:
             if hasattr(screen, 'item_search'):
                 screen.item_search.load_items()
 
@@ -226,7 +273,7 @@ class MainWindow(QMainWindow):
         LOGGER.info(
             f'{len(ALL_CUSTOMERS)} clientes recarregados em ALL_CUSTOMERS')
         # Atualiza todos os widgets de busca de clientes
-        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+        for screen in self.screens:
             if hasattr(screen, 'customer_search'):
                 screen.customer_search.set_customers(ALL_CUSTOMERS)
 
@@ -241,7 +288,7 @@ class MainWindow(QMainWindow):
         LOGGER.info('Finalizando aplicação e threads...')
 
         # Finaliza threads das telas de pedido chamando seus closeEvent
-        for screen in [self.screen1, self.screen2, self.screen3, self.screen4]:
+        for screen in self.screens:
             if hasattr(screen, 'closeEvent'):
                 screen.closeEvent(event)
 

@@ -188,7 +188,7 @@ class AddItemDialog(QDialog):
 
     def setup_additions_section(self, layout):
         """Configura a seção de complementos."""
-        # Label dos complementos
+        # Label dos complementos obrigatórios
         additions_label = QLabel("Complementos Obrigatórios:")
         additions_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(additions_label)
@@ -200,7 +200,6 @@ class AddItemDialog(QDialog):
             "Buscar complemento obrigatório...")
         self.mandatory_search_lineedit.textChanged.connect(
             self.filter_mandatory_additions)
-        # Configura navegação por teclado no campo de busca
         self.mandatory_search_lineedit.keyPressEvent = lambda event: \
             self.search_key_handler(event)
         layout.addWidget(self.mandatory_search_lineedit)
@@ -211,7 +210,6 @@ class AddItemDialog(QDialog):
         self.mandatory_additions_layout.setSpacing(2)
         mandatory_group = QGroupBox("Complementos obrigatórios")
         mandatory_group.setStyleSheet("margin-bottom: 0px;")
-        # Widget para scroll
         mandatory_widget = QWidget()
         mandatory_widget.setLayout(self.mandatory_additions_layout)
         scroll_area = QScrollArea()
@@ -227,49 +225,56 @@ class AddItemDialog(QDialog):
         mandatory_group.setLayout(group_layout)
         layout.addWidget(mandatory_group)
 
-        # Label "Complementos" acima do combo
+        # Layout horizontal para complementos opcionais e lista de selecionados
+        row_layout = QHBoxLayout()
+
+        # Coluna 1: label, select, quantidade, botão adicionar
+        col1 = QVBoxLayout()
         complementos_label = QLabel("Complementos:")
         complementos_label.setStyleSheet(
             "font-weight: bold; margin-top: 10px;")
-        layout.addWidget(complementos_label)
+        col1.addWidget(complementos_label)
 
-        # Layout para seleção de complementos opcionais
-        additions_layout = QHBoxLayout()
-
-        # QPushButton + QMenu para selecionar complemento
         self.additions_button = QPushButton("Selecione um complemento...")
         self.additions_menu = QMenu()
         self.additions_button.setMenu(self.additions_menu)
-
-        # Configura navegação por teclado no QPushButton
         self.additions_button.keyPressEvent = lambda event: \
             self.button_key_handler(event)
+        col1.addWidget(self.additions_button)
 
-        additions_layout.addWidget(self.additions_button)
-
-        # Quantidade
+        qty_row = QHBoxLayout()
         qty_label = QLabel("Qtd:")
-        additions_layout.addWidget(qty_label)
-
+        qty_row.addWidget(qty_label)
         self.addition_qty = QSpinBox()
         self.addition_qty.setMinimum(1)
         self.addition_qty.setMaximum(10)
         self.addition_qty.setValue(1)
-        # Configura navegação por teclado na quantidade
         self.addition_qty.keyPressEvent = lambda event: \
             self.addition_qty_key_handler(event)
-        additions_layout.addWidget(self.addition_qty)
-        # Botão adicionar
+        qty_row.addWidget(self.addition_qty)
+        col1.addLayout(qty_row)
+
         self.add_addition_btn = QPushButton("Adicionar")
         self.add_addition_btn.clicked.connect(self.add_addition_to_list)
-        additions_layout.addWidget(self.add_addition_btn)
+        col1.addWidget(self.add_addition_btn)
+        col1.addStretch()
 
-        layout.addLayout(additions_layout)
-
-        # Lista de complementos selecionados
+        # Coluna 2: lista de complementos selecionados
+        col2 = QVBoxLayout()
+        selected_label = QLabel("Selecionados:")
+        selected_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        col2.addWidget(selected_label)
         self.selected_additions = QListWidget()
         self.selected_additions.setMaximumHeight(100)
-        layout.addWidget(self.selected_additions)
+        col2.addWidget(self.selected_additions)
+        col2.addStretch()
+
+        # Adiciona as duas colunas ao layout horizontal
+        row_layout.addLayout(col1)
+        row_layout.addSpacing(16)
+        row_layout.addLayout(col2)
+
+        layout.addLayout(row_layout)
 
         # Estilização de foco para checkboxes obrigatórios
         self.setStyleSheet(self.styleSheet() + """

@@ -171,6 +171,19 @@ class SettingsDialog(QDialog):
         interface_layout = QVBoxLayout()
         interface_group.setLayout(interface_layout)
 
+        # Número de telas de pedido
+        screens_layout = QHBoxLayout()
+        screens_layout.addWidget(QLabel("Número de telas de pedido:"))
+        self.num_screens_spinbox = QSpinBox()
+        self.num_screens_spinbox.setMinimum(1)
+        self.num_screens_spinbox.setMaximum(4)
+        self.num_screens_spinbox.setValue(4)
+        self.num_screens_spinbox.setToolTip(
+            "Escolha quantas telas de pedido exibir (1-4)")
+        screens_layout.addWidget(self.num_screens_spinbox)
+        screens_layout.addStretch()
+        interface_layout.addLayout(screens_layout)
+
         # Confirmar exclusões
         self.confirm_delete_checkbox = QCheckBox(
             "Confirmar antes de excluir itens")
@@ -378,6 +391,9 @@ class SettingsDialog(QDialog):
             self.rotate_receipt_checkbox.setChecked(rotate_receipt)
 
             # Configurações do sistema
+            num_screens = int(get_system_setting('num_order_screens', '4'))
+            self.num_screens_spinbox.setValue(num_screens)
+
             confirm_delete = get_system_setting(
                 'confirm_delete', 'true') == 'true'
             self.confirm_delete_checkbox.setChecked(confirm_delete)
@@ -456,6 +472,9 @@ class SettingsDialog(QDialog):
             set_system_setting('rotate_receipt', rotate_receipt_value)
 
             # Configurações do sistema
+            set_system_setting('num_order_screens',
+                               str(self.num_screens_spinbox.value()))
+
             confirm_delete_value = ('true'
                                     if self.confirm_delete_checkbox.isChecked()
                                     else 'false')
@@ -475,6 +494,14 @@ class SettingsDialog(QDialog):
                                self.backup_combo.currentText())
             set_system_setting('history_months',
                                str(self.history_spinbox.value()))
+
+            # Verifica se o número de telas foi alterado
+            current_screens = int(get_system_setting('num_order_screens', '4'))
+            if current_screens != self.num_screens_spinbox.value():
+                QMessageBox.information(
+                    self, "Reinicialização Necessária",
+                    "Para aplicar a mudança no número de telas de pedido, "
+                    "é necessário reiniciar o aplicativo.")
 
             QMessageBox.information(
                 self, "Sucesso", "Configurações salvas com sucesso!")

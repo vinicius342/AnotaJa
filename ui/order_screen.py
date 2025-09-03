@@ -201,12 +201,13 @@ class OrderScreen(QWidget):
 
     """Tela de pedidos simplificada."""
 
-    def __init__(self, screen_title, parent=None, customers=None):
+    def __init__(self, screen_title, parent=None, customers=None, single_column_layout=False):
         super().__init__(parent)
         self.screen_title = screen_title
         self.selected_customer = None
         self.order_items = []
         self.customers = customers if customers is not None else []
+        self.single_column_layout = single_column_layout
         self._editing_dialog = None  # Controla múltiplas aberturas de diálogos
         self._last_edit_time = {}  # Controla tempo de último clique por botão
 
@@ -217,14 +218,90 @@ class OrderScreen(QWidget):
 
     def setup_ui(self):
         """Configura a interface da tela de pedidos."""
-        main_layout = QHBoxLayout()
-        self.setLayout(main_layout)
+        if self.single_column_layout:
+            # Layout de uma coluna para 3 telas
+            main_layout = QVBoxLayout()
+            self.setLayout(main_layout)
 
-        # Primeira coluna: campos de busca
-        self.setup_left_column(main_layout)
+            # Título no topo
+            self.setup_title_label(main_layout)
 
-        # Segunda coluna: título e tabela de pedidos
-        self.setup_right_column(main_layout)
+            # Campos de busca
+            self.setup_search_section(main_layout)
+
+            # Frame do pedido
+            self.setup_order_frame(main_layout)
+
+            main_layout.addStretch()
+        else:
+            # Layout de duas colunas (padrão)
+            main_layout = QHBoxLayout()
+            self.setLayout(main_layout)
+
+            # Primeira coluna: campos de busca
+            self.setup_left_column(main_layout)
+
+            # Segunda coluna: título e tabela de pedidos
+            self.setup_right_column(main_layout)
+
+    def setup_search_section(self, layout):
+        """Configura a seção de busca para layout de uma coluna."""
+        # Layout vertical para os campos de busca quando há 3 telas
+        search_layout = QVBoxLayout()
+
+        # Campo de busca de clientes
+        self.customer_search = CustomerSearchWidget(customers=self.customers)
+        self.customer_search.customer_selected.connect(
+            self.on_customer_selected)
+        self.customer_search.suggestions_list_shown.connect(
+            self.hide_left_column_widgets
+        )
+        self.customer_search.suggestions_list_hidden.connect(
+            self.show_left_column_widgets
+        )
+        search_layout.addWidget(self.customer_search)
+
+        # Campo de busca de itens
+        self.item_search = ItemSearchWidget()
+        self.item_search.item_selected.connect(self.on_item_selected)
+        self.item_search.suggestions_list_shown.connect(
+            self.hide_left_column_widgets_for_items
+        )
+        self.item_search.suggestions_list_hidden.connect(
+            self.show_left_column_widgets
+        )
+        search_layout.addWidget(self.item_search)
+
+        layout.addLayout(search_layout)
+
+        # Armazena referências aos widgets que devem ser escondidos
+        self.left_column_widgets = []  # Para busca de clientes
+        self.left_column_widgets_for_items = [
+            self.customer_search]  # Para busca de itens
+
+        # Botões em layout horizontal
+        buttons_layout = QHBoxLayout()
+        self.clear_order_button = QPushButton("Limpar Pedido")
+        self.clear_order_button.clicked.connect(self.clear_order)
+        self.history_button = QPushButton("Histórico")
+        self.history_button.clicked.connect(self.show_history_dialog)
+
+        buttons_layout.addWidget(self.clear_order_button)
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(self.history_button)
+
+        self.clear_button_layout = buttons_layout
+        layout.addLayout(buttons_layout)
+
+        # Adiciona os botões à lista de widgets que serão escondidos
+        self.left_column_widgets.append(self.item_search)
+        self.left_column_widgets.append(self.clear_order_button)
+        self.left_column_widgets.append(self.history_button)
+        self.left_column_widgets_for_items.append(self.clear_order_button)
+        self.left_column_widgets_for_items.append(self.history_button)
+
+        # Desabilita o campo de item até que um cliente seja selecionado
+        self.item_search.item_lineedit.setEnabled(False)
 
     def setup_left_column(self, main_layout):
         """Configura a coluna esquerda com campos de busca."""
