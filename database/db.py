@@ -642,14 +642,43 @@ def get_orders_today():
                 else:
                     observations = ''
 
+                # DEBUG: Verificar o conteúdo da tabela order_item_additions
+                cursor.execute('SELECT * FROM order_item_additions WHERE order_item_id = ?', (order_item_id,))
+                debug_additions = cursor.fetchall()
+                print(f"\033[96m[DB] DEBUG - order_item_additions para item {order_item_id}: {debug_additions}\033[0m")
+                
+                # DEBUG: Verificar se a tabela tem dados em geral
+                cursor.execute('SELECT COUNT(*) FROM order_item_additions')
+                total_count = cursor.fetchone()[0]
+                print(f"\033[96m[DB] DEBUG - Total de registros em order_item_additions: {total_count}\033[0m")
+
                 # Adicionais com quantidade correta do banco
+                # Busca complementos da tabela additions (IDs numéricos)
                 cursor.execute('''
                     SELECT a.id, a.name, a.price, oia.qty FROM order_item_additions oia
                     JOIN additions a ON oia.addition_id = a.id
-                    WHERE oia.order_item_id = ?
+                    WHERE oia.order_item_id = ? AND oia.addition_id NOT LIKE 'specific_%'
                 ''', (order_item_id,))
+                additions_result = cursor.fetchall()
+                
+                # Busca complementos específicos do item (IDs com 'specific_')
+                cursor.execute('''
+                    SELECT isa.id, isa.name, isa.price, oia.qty FROM order_item_additions oia
+                    JOIN item_specific_additions isa ON CAST(REPLACE(oia.addition_id, 'specific_', '') AS INTEGER) = isa.id
+                    WHERE oia.order_item_id = ? AND oia.addition_id LIKE 'specific_%'
+                ''', (order_item_id,))
+                specific_additions_result = cursor.fetchall()
+                
+                # Combina os dois resultados
+                all_additions_result = additions_result + specific_additions_result
+                
+                print(f"\033[91m[DB] Consultando complementos para order_item_id {order_item_id}: {len(all_additions_result)} encontrados\033[0m")
+                print(f"\033[91m[DB] Complementos normais: {len(additions_result)}, Específicos: {len(specific_additions_result)}\033[0m")
+                print(f"\033[91m[DB] Complementos raw: {all_additions_result}\033[0m")
+                
                 additions = []
-                for add_id, add_name, add_price, add_qty in cursor.fetchall():
+                for add_id, add_name, add_price, add_qty in all_additions_result:
+                    print(f"\033[91m[DB] Processando complemento: id={add_id}, name={add_name}, price={add_price}, qty={add_qty}\033[0m")
                     additions.append(
                         {'id': add_id, 'name': add_name, 'price': add_price, 'qty': add_qty, 'total': add_price * add_qty})
 

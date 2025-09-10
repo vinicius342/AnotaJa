@@ -93,7 +93,14 @@ class OrderScreen(QWidget):
                                 break
                 # Preenche os itens do pedido, garantindo que obrigatórios estejam corretos
                 itens_corrigidos = []
-                for item in o['items']:
+                print(
+                    f"\033[94m[HISTORICO] Recuperando {len(o['items'])} itens do pedido\033[0m")
+                for idx, item in enumerate(o['items']):
+                    print(
+                        f"\033[94m[HISTORICO] Item {idx}: {item.get('item_data', [None, 'Item desconhecido'])[1]}\033[0m")
+                    print(
+                        f"\033[94m[HISTORICO] Complementos originais no banco: {item.get('additions', [])}\033[0m")
+
                     # Usa mandatory_selected para marcar os obrigatórios
                     mandatory_selected_ids = item.get('mandatory_selected', [])
                     obrigatorios = []
@@ -107,16 +114,29 @@ class OrderScreen(QWidget):
                             'selected': mand.get('id') in mandatory_selected_ids
                         }
                         obrigatorios.append(obrigatorio)
-                    # Corrige opcionais também
+
+                    # Corrige opcionais também - AQUI É ONDE PODE ESTAR O PROBLEMA
                     opcionais = []
-                    for add in item.get('additions', []):
-                        opcionais.append({
+                    print(
+                        f"\033[93m[HISTORICO] Processando {len(item.get('additions', []))} complementos opcionais\033[0m")
+                    for add_idx, add in enumerate(item.get('additions', [])):
+                        print(
+                            f"\033[93m[HISTORICO] Complemento {add_idx}: {add}\033[0m")
+                        complemento_processado = {
                             'id': add.get('id'),
                             'name': add.get('name'),
                             'price': add.get('price', 0.0),
                             'qty': add.get('qty', 1),
                             'total': add.get('total', add.get('price', 0.0) * add.get('qty', 1))
-                        })
+                        }
+                        print(
+                            f"\033[93m[HISTORICO] Complemento processado {add_idx}: {complemento_processado}\033[0m")
+                        opcionais.append(complemento_processado)
+
+                    print(
+                        f"\033[93m[HISTORICO] Total de complementos processados: {len(opcionais)}\033[0m")
+                    print(
+                        f"\033[93m[HISTORICO] Lista final de opcionais: {opcionais}\033[0m")
                     item_corrigido = {
                         'item_data': item.get('item_data'),
                         'qty': item.get('qty', 1),
@@ -157,6 +177,18 @@ class OrderScreen(QWidget):
                         }
                         item['mandatory_additions'].append(mand_dict)
                     print(f'\033[92m {item}\033[0m')
+
+                print(
+                    f"\033[95m[HISTORICO] FINAL - Total de itens corrigidos: {len(itens_corrigidos)}\033[0m")
+                for final_idx, final_item in enumerate(itens_corrigidos):
+                    print(
+                        f"\033[95m[HISTORICO] Item final {final_idx}: {final_item.get('item_data', [None, 'Item'])[1]}\033[0m")
+                    print(
+                        f"\033[95m[HISTORICO] Complementos finais do item {final_idx}: {len(final_item.get('additions', []))}\033[0m")
+                    for comp_idx, comp in enumerate(final_item.get('additions', [])):
+                        print(
+                            f"\033[95m[HISTORICO] Complemento final {comp_idx}: {comp}\033[0m")
+
                 self.order_items = itens_corrigidos
                 LOGGER.info(
                     f"[HISTORICO] Itens restaurados: {self.order_items}")

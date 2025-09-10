@@ -226,9 +226,9 @@ def format_order_for_print(customer_data, order_items, total_amount,
                     for line in wrap_line(mand_line):
                         lines.append(line)
 
-            # Adicionais opcionais
+            # Complementos opcionais
             if item.get('additions'):
-                lines.append("      Adicionais:")
+                lines.append("      Complementos:")
                 for addition in item['additions']:
                     add_name = addition.get('name', 'Adicional')
                     add_qty = addition.get('qty', 1)
