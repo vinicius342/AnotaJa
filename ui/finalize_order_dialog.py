@@ -184,6 +184,8 @@ class FinalizeOrderDialog(QDialog):
 
         # Checkbox Entrega
         self.delivery_checkbox = QCheckBox("Entrega")
+        self.delivery_checkbox.setStyleSheet(
+            "QCheckBox:focus { background: none; } ")
         self.delivery_checkbox.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.delivery_checkbox.keyPressEvent = lambda event: self.checkbox_key_handler(
             event, self.delivery_checkbox)

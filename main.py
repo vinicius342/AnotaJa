@@ -163,7 +163,7 @@ class MainWindow(QMainWindow):
             vline.setFrameShadow(QFrame.Sunken)
             vline.setLineWidth(2)
             vline.setStyleSheet(
-                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+                "QFrame { border-left: 1px solid #282e39; margin: 0; }")
             layout.addWidget(vline, 0, 1)
         elif self.num_screens == 3:
             # Layout horizontal (uma linha com 3 colunas)
@@ -199,7 +199,7 @@ class MainWindow(QMainWindow):
             vline.setFrameShadow(QFrame.Sunken)
             vline.setLineWidth(2)
             vline.setStyleSheet(
-                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+                "QFrame { border-left: 1px solid #282e39; margin: 0; }")
             layout.addWidget(vline, 0, 1, 3, 1)
 
             # Linha horizontal

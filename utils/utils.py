@@ -1,11 +1,20 @@
+# principal 0d1117
+# secundario 1b2029
+# terceira 282e39
+# color ffffff
+
 # Estilos para CustomerSearchWidget
+
+from turtle import color
+
 CUSTOMER_LINEEDIT_BASE_STYLE = (
     "QLineEdit {"
     "padding: 8px;"
-    "border: 2px solid #ccc;"
+    "border: 2px solid #282e39;"
     "border-radius: 4px 4px 0 0;"
     "font-size: 14px;"
-    "background-color: white;"
+    "background-color: #1b2029;"
+    "color: #ffffff;"
     "}"
     "QLineEdit:focus {"
     "border-color: #2a7;"
@@ -19,11 +28,13 @@ CUSTOMER_LINEEDIT_NO_BORDER_STYLE = (
     "border-radius: 4px 4px 0 0;"
     "font-size: 14px;"
     "background-color: white;"
+    "color: #222;"
     "border-bottom: none;"
     "}"
     "QLineEdit:focus {"
     "border-color: #2a7;"
     "border-bottom: none;"
+    "color: #222;"
     "}"
 )
 
@@ -55,18 +66,19 @@ Utilitários gerais para a aplicação AnotaJa.
 # Estilo CSS para a aplicação
 STYLE = """
 QMainWindow {
-    background-color: #ffffff;
+    background-color: #0d1117;
 }
 
 QDialog {
-    background-color: #ffffff;
+    background-color: #0d1117;
 }
 
 QWidget {
     font-family: 'Segoe UI', sans-serif;
     font-size: 13px;
     color: #222;
-    background-color: #ffffff;
+    background-color: #0d1117;
+    border: 2px solid #282e39;
 }
 
 QPushButton {
@@ -99,8 +111,9 @@ QLineEdit {
     border: 2px solid #ccc;
     border-radius: 4px 4px 0 0;
     font-size: 14px;
-    background-color: #ffffff;
-    color: #222;
+    background-color: #1b2029;
+    border-color: #282e39;
+    color: #ffffff;
 }
 
 QLineEdit:focus {
@@ -108,16 +121,17 @@ QLineEdit:focus {
 }
 
 QTableWidget {
-    background-color: #ffffff;
-    gridline-color: #ddd;
+    background-color: #1b2029;
+    gridline-color: #1b2029;
     selection-background-color: #e8f5e8;
-    color: #222;
+    color: #ffffff;
 }
 
 QTableWidget::item {
     padding: 5px;
-    background-color: #ffffff;
-    color: #222;
+    background-color: #1b2029;
+    border: 1px solid #282e39;
+    color: #ffffff;
 }
 
 QTableWidget::item:selected {
@@ -157,6 +171,7 @@ QComboBox QAbstractItemView {
 QListWidget {
     background-color: #ffffff;
     color: #222;
+    border: 1px solid #282e39;
 }
 
 QListWidget::item {
@@ -185,24 +200,24 @@ QMenu::item:selected {
 }
 
 QLabel {
-    color: #333333;
-    background-color: #ffffff;
+    color: #ffffff;
+    background-color: #0d1117;
     padding: 4px 4px;
     margin: 0px 0px;
 }
 
 QTabWidget::pane {
     border: 1px solid #ddd;
-    background-color: #ffffff;
+    background-color: #0d1117;
 }
 
 QTabBar::tab {
-    background-color: #f0f0f0;
+    background-color: #0d1117;
     padding: 8px 12px;
     margin-right: 2px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
-    color: #222;
+    color: #ffffff;
 }
 
 QTabBar::tab:selected {
@@ -217,13 +232,13 @@ QTabBar::tab:hover {
 }
 
 QMenuBar {
-    background-color: #ffffff;
+    background-color: #0d1117;
     border-bottom: 1px solid #ddd;
 }
 
 QMenuBar, QMenuBar::item {
-    background-color: #ffffff;
-    color: #222;
+    background-color: #0d1117;
+    color: #ffffff;
 }
 
 QMenuBar::item {
@@ -238,25 +253,25 @@ QMenuBar::item:selected {
 /* Componentes adicionais */
 
 QFrame {
-    background-color: #ffffff;
+    background-color: #0d1117;
     border: none;
-    color: #222;
+    color: #ffffff;
 }
 
 QGroupBox {
-    border: 1px solid #ccc;
+    border: 1px solid #1b2029;
     border-radius: 4px;
     margin-top: 10px;
     padding: 6px;
-    background-color: #ffffff;
-    color: #222;
+    background-color: #0d1117;
+    color: #ffffff;
 }
 
 QGroupBox:title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 0 3px;
-    color: #333;
+    color: #ffffff;
     background-color: transparent;
 }
 
@@ -289,8 +304,9 @@ QScrollBar::add-line, QScrollBar::sub-line {
 
 QCheckBox {
     spacing: 6px;
-    color: #222;
-    background-color: #ffffff;
+    color: #ffffff;
+    background-color: none;
+    border: none;
 }
 
 QCheckBox::indicator {
@@ -298,8 +314,9 @@ QCheckBox::indicator {
     height: 16px;
     border: 1px solid #888;
     border-radius: 3px;
-    background: #fff;
+    background: #0d1117;
 }
+
 QCheckBox::indicator:checked {
     background: #2a7;
     border: 1px solid #2a7;
@@ -317,8 +334,8 @@ QRadioButton::indicator {
 }
 
 QSpinBox, QDoubleSpinBox {
-    background-color: #ffffff;
-    color: #222;
+    background-color: #1b2029;
+    color: #ffffff;
 }
 
 QSpinBox:focus, QDoubleSpinBox:focus {

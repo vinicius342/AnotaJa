@@ -52,7 +52,8 @@ class OrderScreen(QWidget):
             table.setItem(idx, 1, QTableWidgetItem(phone))
             table.setItem(idx, 2, QTableWidgetItem(total))
             btn = QPushButton("Preencher")
-            btn.setStyleSheet("QPushButton { padding: 0px; }")
+            btn.setStyleSheet(
+                "QPushButton { padding: 0px; }")
 
             def fill_order(o=order, c=customer):
                 # Busca registro completo do cliente em self.customers
@@ -295,6 +296,7 @@ class OrderScreen(QWidget):
 
         # Campo de busca de itens
         self.item_search = ItemSearchWidget()
+        self.item_search.setStyleSheet("margin-bottom: 8px;")
         self.item_search.item_selected.connect(self.on_item_selected)
         self.item_search.suggestions_list_shown.connect(
             self.hide_left_column_widgets_for_items
@@ -431,10 +433,12 @@ class OrderScreen(QWidget):
     def setup_order_frame(self, layout):
         """Configura o frame do pedido."""
         order_frame = QFrame()
+        order_frame.setObjectName("orderFrame")
         order_frame.setFrameStyle(QFrame.Shape.StyledPanel)
         order_frame.setMaximumWidth(320)
-        # Remove border from order_frame
-        order_frame.setStyleSheet("QFrame { border: none; }")
+        # Aplica borda personalizada apenas ao QFrame principal
+        order_frame.setStyleSheet(
+            "#orderFrame { border: 2px solid #1b2029; border-radius: 6px; background: transparent; }")
 
         order_layout = QVBoxLayout()
         order_frame.setLayout(order_layout)

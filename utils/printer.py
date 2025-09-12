@@ -84,6 +84,10 @@ class Printer:
             internal_path = Path(sys._MEIPASS) / '_internal' / 'SumatraPDF.exe'
             if internal_path.exists():
                 sumatra_path = internal_path
+            else:
+                internal_path = Path(sys._MEIPASS) / 'SumatraPDF.exe'
+                if internal_path.exists():
+                    sumatra_path = internal_path
         # 2. Fallback: buscar em utils/ (desenvolvimento)
         if sumatra_path is None:
             dev_path = Path(__file__).parent / "SumatraPDF.exe"

@@ -211,6 +211,7 @@ class AddItemDialog(QDialog):
         mandatory_group = QGroupBox("Complementos obrigatórios")
         mandatory_group.setStyleSheet("margin-bottom: 0px;")
         mandatory_widget = QWidget()
+        mandatory_widget.setStyleSheet('border: none;')
         mandatory_widget.setLayout(self.mandatory_additions_layout)
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)

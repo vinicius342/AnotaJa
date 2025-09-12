@@ -210,6 +210,7 @@ class MenuRegistrationWindow(QDialog):
         # ...existing code...
         # Layout para complementos obrigatórios (checkbox à esquerda, nome à direita)
         self.mandatory_complements_widget = QWidget()
+        self.mandatory_complements_widget.setStyleSheet('border: none;')
         self.mandatory_complements_layout = QVBoxLayout()
         self.mandatory_complements_layout.setContentsMargins(0, 0, 0, 0)
         self.mandatory_complements_layout.setSpacing(5)

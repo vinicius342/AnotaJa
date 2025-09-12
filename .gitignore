@@ -30,7 +30,6 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
 
 # Installer logs
 pip-log.txt
@@ -206,7 +205,6 @@ service_account.json
 *.exe
 dist/
 build/
-*.spec
 
 # Arquivos de teste temporários
 test_output/
@@ -217,3 +215,6 @@ test_*.db
 
 # Configurações locais do SumatraPDF
 SumatraPDF-settings.txt
+
+# Diretórios de saída de relatórios ou documentos gerados
+output/
