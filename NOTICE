@@ -1,0 +1,11 @@
+Este projeto inclui o executável SumatraPDF (https://www.sumatrapdfreader.org), que é licenciado sob a GNU GPL v3.
+
+O SumatraPDF é um visualizador de PDF gratuito e de código aberto.
+
+Licença completa disponível em: https://www.gnu.org/licenses/gpl-3.0.html
+
+Copyright (C) 2004-2025 Krzysztof Kowalczyk e colaboradores do SumatraPDF.
+
+O código-fonte do SumatraPDF pode ser obtido em: https://github.com/sumatrapdfreader/sumatrapdf
+
+Ao distribuir este projeto, você está sujeito aos termos da GNU General Public License v3 no que se refere ao SumatraPDF.

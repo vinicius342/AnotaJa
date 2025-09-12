@@ -605,14 +605,14 @@ class AddItemDialog(QDialog):
             pos.x(), pos.y(), rect.width(), rect.height())
 
     def get_all_checkboxes(self):
-        """Retorna lista de todos os checkboxes obrigatórios."""
+        """Retorna lista de todos os checkboxes obrigatórios visíveis."""
         checkboxes = []
         for i in range(self.mandatory_additions_layout.count()):
             item = self.mandatory_additions_layout.itemAt(i)
-            if item and item.widget():
+            if item and item.widget() and item.widget().isVisible():
                 widget = item.widget()
                 checkbox = widget.findChild(QCheckBox)
-                if checkbox:
+                if checkbox and checkbox.isVisible():
                     checkboxes.append(checkbox)
         return checkboxes
 
