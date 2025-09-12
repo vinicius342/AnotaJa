@@ -7,7 +7,7 @@
   },
   {
    "optionDest": "filenames",
-   "value": "C:/Users/vinic/Desktop/projetos-new/AnotaJa/main.py"
+   "value": "C:/Users/vinic/Desktop/projetos/AnotaJa/main.py"
   },
   {
    "optionDest": "onefile",
@@ -19,7 +19,7 @@
   },
   {
    "optionDest": "icon_file",
-   "value": "C:/Users/vinic/Desktop/projetos-new/AnotaJa/ui/icons/main_icon.ico"
+   "value": "C:/Users/vinic/Desktop/projetos/AnotaJa/ui/icons/main_icon.ico"
   },
   {
    "optionDest": "name",
@@ -63,11 +63,11 @@
   },
   {
    "optionDest": "datas",
-   "value": "C:/Users/vinic/Desktop/projetos-new/AnotaJa/utils/SumatraPDF.exe;."
+   "value": "C:/Users/vinic/Desktop/projetos/AnotaJa/utils/SumatraPDF.exe;."
   },
   {
    "optionDest": "datas",
-   "value": "C:/Users/vinic/Desktop/projetos-new/AnotaJa/ui/icons/main_icon.ico;ui/icons/"
+   "value": "C:/Users/vinic/Desktop/projetos/AnotaJa/ui/icons/main_icon.ico;ui/icons/"
   }
  ],
  "nonPyinstallerOptions": {

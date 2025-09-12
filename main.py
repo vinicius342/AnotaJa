@@ -103,8 +103,10 @@ class MainWindow(QMainWindow):
 
         # Menu bar com botão Ajustes
         menubar = QMenuBar(self)
+        menubar.setStyleSheet(" border: none; ")
         self.setMenuBar(menubar)
         menu_menu = QMenu("Cardápio", self)
+        menu_menu.setStyleSheet(" border: none; ")
         cadastro_action = QAction("Cadastro", self)
         cadastro_action.triggered.connect(self.open_menu_registration)
         edicao_action = QAction("Edição", self)
@@ -176,7 +178,7 @@ class MainWindow(QMainWindow):
             vline1.setFrameShadow(QFrame.Sunken)
             vline1.setLineWidth(2)
             vline1.setStyleSheet(
-                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+                "QFrame { border-left: 1px solid #282e39; margin: 0; }")
             layout.addWidget(vline1, 0, 1)
 
             vline2 = QFrame()
@@ -184,7 +186,7 @@ class MainWindow(QMainWindow):
             vline2.setFrameShadow(QFrame.Sunken)
             vline2.setLineWidth(2)
             vline2.setStyleSheet(
-                "QFrame { border-left: 1px solid #bbb; margin: 0; }")
+                "QFrame { border-left: 1px solid #282e39; margin: 0; }")
             layout.addWidget(vline2, 0, 3)
         elif self.num_screens == 4:
             # Layout em grade 2x2
@@ -208,7 +210,7 @@ class MainWindow(QMainWindow):
             hline.setFrameShadow(QFrame.Sunken)
             hline.setLineWidth(2)
             hline.setStyleSheet(
-                "QFrame { border-top: 1px solid #bbb; margin: 0; }")
+                "QFrame { border-top: 1px solid #282e39; margin: 0; }")
             layout.addWidget(hline, 1, 0, 1, 3)
 
         # Conecta sinais de todas as telas ativas
